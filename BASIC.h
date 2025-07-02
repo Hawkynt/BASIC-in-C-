@@ -27,9 +27,9 @@
 #define __DIM_ARRAY_IMPL(var , size , type) type var[size];
 #define DIM_ARRAY(...) EXPAND(__DIM_ARRAY_IMPL(__VA_ARGS__))
 
-#define SET(var, val) var = val;
-#define LET(var, val) auto var = val;
-#define CONST(var, val) auto constexpr var = val;
+#define SET(x) x;
+#define LET(x) auto x;
+#define CONST(x) const constexpr auto x;
 
 // Logic & conditionals
 #define IF(cond) if(cond)
