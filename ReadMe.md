@@ -1,5 +1,8 @@
 # 🧮 BASIC.h
 
+[![License](https://img.shields.io/badge/License-LGPL_3.0-blue)](https://licenses.nuget.org/LGPL-3.0-or-later)
+![Language](https://img.shields.io/github/languages/top/Hawkynt/BASIC-in-C-?color=purple)
+
 **“The header your C++ professor warned you about.”**
 
 ---
