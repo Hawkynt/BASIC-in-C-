@@ -1,7 +1,16 @@
 # 🧮 BASIC.h
 
-[![License](https://img.shields.io/badge/License-LGPL_3.0-blue)](https://licenses.nuget.org/LGPL-3.0-or-later)
-![Language](https://img.shields.io/github/languages/top/Hawkynt/BASIC-in-C-?color=purple)
+[![License](https://img.shields.io/github/license/Hawkynt/BASIC-in-C-)](https://github.com/Hawkynt/BASIC-in-C-/blob/main/LICENSE)
+[![Language](https://img.shields.io/github/languages/top/Hawkynt/BASIC-in-C-?color=8957D5)](https://github.com/Hawkynt/BASIC-in-C-)
+
+![Last Commit](https://img.shields.io/github/last-commit/Hawkynt/BASIC-in-C-?branch=main)
+![Activity](https://img.shields.io/github/commit-activity/m/Hawkynt/BASIC-in-C-)
+
+[![Stars](https://img.shields.io/github/stars/Hawkynt/BASIC-in-C-?color=FFD700)](https://github.com/Hawkynt/BASIC-in-C-/stargazers)
+[![Forks](https://img.shields.io/github/forks/Hawkynt/BASIC-in-C-?color=008080)](https://github.com/Hawkynt/BASIC-in-C-/network/members)
+[![Issues](https://img.shields.io/github/issues/Hawkynt/BASIC-in-C-)](https://github.com/Hawkynt/BASIC-in-C-/issues)
+![Code Size](https://img.shields.io/github/languages/code-size/Hawkynt/BASIC-in-C-?color=4CAF50)
+![Repo Size](https://img.shields.io/github/repo-size/Hawkynt/BASIC-in-C-?color=FF9800)
 
 > The header your C++ professor warned you about.
 
