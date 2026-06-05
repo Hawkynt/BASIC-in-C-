@@ -1,4 +1,4 @@
-# 🧮 BASIC.h
+# BASIC-in-C-
 
 [![License](https://img.shields.io/github/license/Hawkynt/BASIC-in-C-)](https://github.com/Hawkynt/BASIC-in-C-/blob/main/LICENSE)
 [![Language](https://img.shields.io/github/languages/top/Hawkynt/BASIC-in-C-?color=8957D5)](https://github.com/Hawkynt/BASIC-in-C-)
@@ -17,7 +17,7 @@
 [![Nightly](https://img.shields.io/github/v/release/Hawkynt/BASIC-in-C-?include_prereleases=true&sort=date&label=nightly&color=FF9800)](https://github.com/Hawkynt/BASIC-in-C-/releases)
 [![Downloads](https://img.shields.io/github/downloads/Hawkynt/BASIC-in-C-/total)](https://github.com/Hawkynt/BASIC-in-C-/releases)
 
-> The header your C++ professor warned you about.
+> The header your C++ professor warned you about — classic line-numbered BASIC (GOTO, GOSUB, DATA, FOR…TO/STEP, PRINT) embedded straight into modern C++ with a single `#include "BASIC.h"`, complete with an eleven-part text-mode demo and a snake game to prove it.
 
 ---
 
@@ -482,3 +482,14 @@ In C++.
 And getting away with it.
 
 😉
+
+## ❤️ Support
+
+If this project saves you time or money, consider supporting its development:
+
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsor-EA4AAA?logo=githubsponsors)](https://github.com/sponsors/Hawkynt)
+[![PayPal](https://img.shields.io/badge/PayPal-Donate-00457C?logo=paypal)](https://www.paypal.me/hawkynt)
+
+## 📜 License
+
+Licensed under LGPL-3.0-or-later — see [LICENSE](LICENSE).
