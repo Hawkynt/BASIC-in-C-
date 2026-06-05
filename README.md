@@ -188,6 +188,12 @@ historically correct segment:
 `POINT(x, y)` reads pixels, `CLS()` wipes the framebuffer, colours mask to the
 mode's depth like the attribute registers of old.
 
+**Video pages, QB 4.5 style:** `PAGES(2)` allocates VRAM pages back to back,
+`ACTIVE_PAGE(n)` picks where drawing goes, `VISUAL_PAGE(n)` what `FLIP()`
+shows, `PCOPY(src, dst)` blits pages — your hidden backbuffer for feedback
+effects, exactly how Timeless layered its tricks. `CLS()` clears the active
+page only, and `PEEK`/`POKE` address the whole VRAM across pages.
+
 ### ☢️ PEEK / POKE / DEF SEG
 
 One flat megabyte of perfectly fake RAM with **honest real-mode address
@@ -386,13 +392,23 @@ This entire monstrosity operates on a volatile cocktail of macro abuse, template
 
 ## 🪩 Example: SECOND UNREALITY
 
-`Demos/SecondUnreality.cpp` is a demoscene tribute written entirely in the
-dialect — copper bars animated purely through `OUT 3C8/3C9` DAC writes, a
-three-sine plasma, shadebobs burning into an ember palette, and a rotozoomer
-in 16-bit truecolor, all vsynced on `INP(&H3DA)`. It's all BASIC now, like
-the Kukoo2 Pleasure Access intro promised, with a Second Reality chaser.
-Press any key to advance the universe; greetings to everyone who ever owned
-a Gravis Ultrasound.
+`Demos/SecondUnreality.cpp` is a ten-part demoscene production written
+entirely in the dialect, vsynced on `INP(&H3DA)` like nature intended:
+
+1. **Copper bars** — the screen is painted once, then only the DAC moves (pure `OUT 3C8/3C9`)
+2. **Plasma** — three sines and a 256-entry rainbow
+3. **Fire** — THE fire: stoked coals, rising heat, black→red→yellow→white
+4. **Starfield** — 220 particles of pure 1993 flying at your face
+5. **Wireframe cube** — rotating 3D, edge list read from `DATA` statements like level data of old
+6. **Sprite bounce** — a radially shaded ball, `GET` once, `PUT` five times a frame, rectangular clipping included free of charge
+7. **Fireworks** — particles, gravity, and trails burned in by never quite clearing the screen
+8. **Timeless tunnel** — a dot tunnel layered over a hidden zoom-feedback backbuffer (`PAGES`/`PCOPY`), glow sprites orbiting on top — for the Timeless heads
+9. **Shadebobs** — additive blobs on Lissajous orbits
+10. **Rotozoom** — in 16-bit truecolor, because the VESA headache has to pay rent
+
+It's all BASIC now, like the Kukoo2 Pleasure Access intro promised, with a
+Second Reality chaser. Any key skips to the next part, ESC leaves the party;
+greetings to everyone who ever owned a Gravis Ultrasound.
 
 ---
 

@@ -3,10 +3,15 @@
 // Second Reality, the Kukoo2 Pleasure Access BBS intro, and every copper bar
 // that ever crawled across a CRT while the modem negotiated.
 //
+// Ten parts: copper bars, plasma, fire, starfield, a wireframe cube,
+// bouncing sprites, fireworks, a Timeless-style tunnel over a hidden
+// feedback backbuffer, shadebobs and a truecolor rotozoom.
 // Everything runs on BASIC.h's fake VGA: palette animation goes through
 // OUT 3C8/3C9 like a demo coder would, frames sync on the (fake but
-// punctual) vertical retrace at INP(3DA), and the rotozoom flexes the
-// truecolor VESA headache. Press any key to advance the universe.
+// punctual) vertical retrace at INP(3DA), the cube reads its edge list
+// from DATA statements, the tunnel composes on a hidden page via
+// PAGES/PCOPY, and the rotozoom flexes the VESA truecolor headache.
+// Any key skips to the next part; ESC leaves the party.
 //
 //   Build:  cl /EHsc /std:c++17 /O2 Demos/SecondUnreality.cpp
 //      or:  x86_64-w64-mingw32-g++ -std=c++17 -O2 -static Demos/SecondUnreality.cpp
@@ -15,6 +20,10 @@
 // ============================================================================
 #include "../BASIC.h"
 
+DATA(0, 1, 1, 3, 3, 2, 2, 0)                    // cube edges: bottom face,
+DATA(4, 5, 5, 7, 7, 6, 6, 4)                    // top face,
+DATA(0, 4, 1, 5, 2, 6, 3, 7)                    // and the pillars
+
 SUB(waitFrame())
   // the classic two-step: leave the current retrace, then catch the next one
   WHILE((INP(0x3DA) AND 8) != 0)
@@ -22,9 +31,19 @@ SUB(waitFrame())
   WAIT(0x3DA, 8)
 END_SUB
 
+FUNCTION(clamp63(INTEGER v) AS INTEGER)
+  IF(v < 0) THEN
+    RETURN(0);
+  ENDIF
+  IF(v > 63) THEN
+    RETURN(63);
+  ENDIF
+  RETURN(v);
+END_FUNCTION
+
 // --------------------------------------------------------------- copper bars
 // The screen is painted ONCE; after that only the DAC moves. Pure 3C8/3C9.
-SUB(copperBars())
+FUNCTION(copperBars() AS INTEGER)
   SCREEN(13)
   FOR(y, 0, 199)
     LINE(0, y, 319, y, 32 + y)                  // one palette entry per scanline
@@ -60,15 +79,17 @@ SUB(copperBars())
     NEXT
     FLIP()
     waitFrame();
-    IF(INKEY() != 0) THEN
-      EXIT_SUB
+    LET(key = INKEY())
+    IF(key != 0) THEN
+      RETURN(key);
     ENDIF
   NEXT
-END_SUB
+  RETURN(0);
+END_FUNCTION
 
 // -------------------------------------------------------------------- plasma
 // Three sines walk into a framebuffer. The palette is a 256-entry rainbow.
-SUB(plasma())
+FUNCTION(plasma() AS INTEGER)
   SCREEN(13)
   OUT(0x3C8, 0)
   FOR(i, 0, 255)
@@ -86,15 +107,331 @@ SUB(plasma())
     NEXT
     FLIP()
     waitFrame();
-    IF(INKEY() != 0) THEN
-      EXIT_SUB
+    LET(key = INKEY())
+    IF(key != 0) THEN
+      RETURN(key);
     ENDIF
   NEXT
-END_SUB
+  RETURN(0);
+END_FUNCTION
+
+// ---------------------------------------------------------------------- fire
+// THE fire. Stoke the bottom row with noise, let the heat rise and cool.
+FUNCTION(fire() AS INTEGER)
+  SCREEN(13)
+  OUT(0x3C8, 0)                                 // black -> red -> yellow -> white
+  FOR(i, 0, 255)
+    OUT(0x3C9, clamp63(i))
+    OUT(0x3C9, clamp63(i - 85))
+    OUT(0x3C9, clamp63(i - 170))
+  NEXT
+  FOR(frame, 1, 220)
+    FOR(x, 0, 319)                              // stoke the coals
+      IF(RND() > 0.5f) THEN
+        PSET(x, 199, 255)
+      ELSE
+        PSET(x, 199, 0)
+      ENDIF
+    NEXT
+    FOR(y, 60, 198)                             // heat rises and cools
+      FOR(x, 1, 318)
+        LET(deeper = POINT(x, y + 2))
+        IF(deeper < 0) THEN
+          SET(deeper = 0)
+        ENDIF
+        LET(heat = CINT((POINT(x, y + 1) + POINT(x - 1, y + 1) + POINT(x + 1, y + 1) + deeper) * 0.24f))
+        PSET(x, y, heat)
+      NEXT
+    NEXT
+    FLIP()
+    waitFrame();
+    LET(key = INKEY())
+    IF(key != 0) THEN
+      RETURN(key);
+    ENDIF
+  NEXT
+  RETURN(0);
+END_FUNCTION
+
+// ----------------------------------------------------------------- starfield
+// Two hundred and twenty particles of pure 1993 flying at your face.
+FUNCTION(starfield() AS INTEGER)
+  SCREEN(13)                                    // default palette: 16..31 is the gray ramp
+  CONST(STARS = 220)
+  DIM_ARRAY(sx, STARS AS SINGLE)
+  DIM_ARRAY(sy, STARS AS SINGLE)
+  DIM_ARRAY(sz, STARS AS SINGLE)
+  FOR(i, 0, STARS - 1)
+    SET(sx[i] = (RND() - 0.5f) * 320.0f)
+    SET(sy[i] = (RND() - 0.5f) * 200.0f)
+    SET(sz[i] = 1.0f + RND() * 255.0f)
+  NEXT
+  FOR(frame, 1, 260)
+    CLS()
+    FOR(i, 0, STARS - 1)
+      SET(sz[i] = sz[i] - 2.5f)
+      LET(visible = FALSE)
+      IF(sz[i] >= 1.0f) THEN
+        LET(screenX = CINT(160.0f + sx[i] * 140.0f / sz[i]))
+        LET(screenY = CINT(100.0f + sy[i] * 140.0f / sz[i]))
+        IF(screenX >= 0 AND screenX < 320 AND screenY >= 0 AND screenY < 200) THEN
+          LET(shade = 31 - CINT(sz[i] / 18.0f))  // closer = brighter
+          PSET(screenX, screenY, shade)
+          IF(sz[i] < 60.0f) THEN                 // near stars get girth
+            PSET(screenX + 1, screenY, shade)
+            PSET(screenX, screenY + 1, shade)
+            PSET(screenX + 1, screenY + 1, shade)
+          ENDIF
+          SET(visible = TRUE)
+        ENDIF
+      ENDIF
+      IF(NOT visible) THEN                       // back to the void with you
+        SET(sx[i] = (RND() - 0.5f) * 320.0f)
+        SET(sy[i] = (RND() - 0.5f) * 200.0f)
+        SET(sz[i] = 200.0f + RND() * 55.0f)
+      ENDIF
+    NEXT
+    FLIP()
+    waitFrame();
+    LET(key = INKEY())
+    IF(key != 0) THEN
+      RETURN(key);
+    ENDIF
+  NEXT
+  RETURN(0);
+END_FUNCTION
+
+// ------------------------------------------------------------------- cube 3d
+// The obligatory rotating wireframe cube. Its edge list lives in DATA
+// statements at the top of the file, read back like level data of old.
+FUNCTION(cube3d() AS INTEGER)
+  SCREEN(13)
+  DIM_ARRAY(edgeA, 12 AS INTEGER)
+  DIM_ARRAY(edgeB, 12 AS INTEGER)
+  RESTORE
+  FOR(e, 0, 11)
+    READ(edgeA[e])
+    READ(edgeB[e])
+  NEXT
+  DIM_ARRAY(vertX, 8 AS INTEGER)
+  DIM_ARRAY(vertY, 8 AS INTEGER)
+  DIM_ARRAY(vertZ, 8 AS INTEGER)
+  FOR(v, 0, 7)                                  // corners from the bit fairy
+    SET(vertX[v] = ((v & 1) * 2 - 1) * 40)
+    SET(vertY[v] = (((v >> 1) & 1) * 2 - 1) * 40)
+    SET(vertZ[v] = (((v >> 2) & 1) * 2 - 1) * 40)
+  NEXT
+  FOR(frame, 1, 240)
+    LET(a = frame * 0.035)
+    LET(b = frame * 0.021)
+    DIM_ARRAY(px, 8 AS INTEGER)
+    DIM_ARRAY(py, 8 AS INTEGER)
+    FOR(v, 0, 7)
+      LET(x1 = vertX[v] * COS(a) - vertZ[v] * SIN(a))
+      LET(z1 = vertX[v] * SIN(a) + vertZ[v] * COS(a))
+      LET(y2 = vertY[v] * COS(b) - z1 * SIN(b))
+      LET(z2 = vertY[v] * SIN(b) + z1 * COS(b))
+      SET(px[v] = 160 + CINT(x1 * 180.0 / (z2 + 160.0)))
+      SET(py[v] = 100 + CINT(y2 * 180.0 / (z2 + 160.0)))
+    NEXT
+    CLS()
+    FOR(e, 0, 11)
+      LINE(px[edgeA[e]], py[edgeA[e]], px[edgeB[e]], py[edgeB[e]], 32 + ((frame * 2 + e * 16) MOD 192))
+    NEXT
+    FLIP()
+    waitFrame();
+    LET(key = INKEY())
+    IF(key != 0) THEN
+      RETURN(key);
+    ENDIF
+  NEXT
+  RETURN(0);
+END_FUNCTION
+
+// ------------------------------------------------------------ sprite bounce
+// A radially shaded ball, GET once, PUT five times a frame. Rectangular
+// sprite clipping included free of charge, exactly like 1991.
+FUNCTION(spriteBounce() AS INTEGER)
+  SCREEN(13)
+  FOR(dy, -15, 15)                              // paint the master ball
+    FOR(dx, -15, 15)
+      LET(dist = CINT(SQR(CDBL(dx * dx + dy * dy))))
+      IF(dist <= 15) THEN
+        PSET(16 + dx, 16 + dy, 47 - dist)       // radial shade through the hue band
+      ENDIF
+    NEXT
+  NEXT
+  DIM(ball AS SPRITE)
+  GET_SPRITE(1, 1, 31, 31, ball)
+  CONST(BALLS = 5)
+  DIM_ARRAY(bx, BALLS AS SINGLE)
+  DIM_ARRAY(by, BALLS AS SINGLE)
+  DIM_ARRAY(bvx, BALLS AS SINGLE)
+  DIM_ARRAY(bvy, BALLS AS SINGLE)
+  FOR(i, 0, BALLS - 1)
+    SET(bx[i] = RND() * 280.0f)
+    SET(by[i] = RND() * 160.0f)
+    SET(bvx[i] = 1.0f + RND() * 2.5f)
+    SET(bvy[i] = 1.0f + RND() * 2.5f)
+  NEXT
+  FOR(frame, 1, 260)
+    CLS()
+    FOR(i, 0, BALLS - 1)
+      SET(bx[i] = bx[i] + bvx[i])
+      SET(by[i] = by[i] + bvy[i])
+      IF(bx[i] < 0 OR bx[i] > 288) THEN
+        SET(bvx[i] = -bvx[i])
+        SET(bx[i] = bx[i] + bvx[i])
+      ENDIF
+      IF(by[i] < 0 OR by[i] > 168) THEN
+        SET(bvy[i] = -bvy[i])
+        SET(by[i] = by[i] + bvy[i])
+      ENDIF
+      PUT_SPRITE(CINT(bx[i]), CINT(by[i]), ball, PSET)
+    NEXT
+    FLIP()
+    waitFrame();
+    LET(key = INKEY())
+    IF(key != 0) THEN
+      RETURN(key);
+    ENDIF
+  NEXT
+  RETURN(0);
+END_FUNCTION
+
+// ----------------------------------------------------------------- fireworks
+// Particles, gravity, and trails burned in by never quite clearing the
+// screen. Explosions on a schedule, like a proper finale.
+FUNCTION(fireworks() AS INTEGER)
+  SCREEN(13)
+  OUT(0x3C8, 0)                                 // ember palette
+  FOR(i, 0, 255)
+    OUT(0x3C9, i / 4)
+    OUT(0x3C9, i * i / 1020)
+    OUT(0x3C9, i / 8)
+  NEXT
+  CONST(MAXP = 360)
+  DIM_ARRAY(fx, MAXP AS SINGLE)
+  DIM_ARRAY(fy, MAXP AS SINGLE)
+  DIM_ARRAY(fvx, MAXP AS SINGLE)
+  DIM_ARRAY(fvy, MAXP AS SINGLE)
+  DIM_ARRAY(flife, MAXP AS SINGLE)
+  FOR(i, 0, MAXP - 1)
+    SET(flife[i] = 0)
+  NEXT
+  LET(nextBurst = 1)
+  FOR(frame, 1, 320)
+    FOR(y, 0, 199)                              // fade everything: instant trails
+      FOR(x, 0, 319)
+        LET(heat = POINT(x, y))
+        IF(heat > 2) THEN
+          PSET(x, y, heat - 2)
+        ELSEIF(heat > 0)
+          PSET(x, y, 0)
+        ENDIF
+      NEXT
+    NEXT
+    IF(frame >= nextBurst) THEN                 // light the next one
+      LET(ex = 40.0f + RND() * 240.0f)
+      LET(ey = 30.0f + RND() * 100.0f)
+      LET(spawned = 0)
+      FOR(i, 0, MAXP - 1)
+        IF(flife[i] <= 0 AND spawned < 90) THEN
+          LET(angle = RND() * 2.0f * CSNG(PI))
+          LET(speed = 0.5f + RND() * 2.5f)
+          SET(fx[i] = ex)
+          SET(fy[i] = ey)
+          SET(fvx[i] = CSNG(COS(angle)) * speed)
+          SET(fvy[i] = CSNG(SIN(angle)) * speed - 0.5f)
+          SET(flife[i] = 40.0f + RND() * 50.0f)
+          SET(spawned = spawned + 1)
+        ENDIF
+      NEXT
+      SET(nextBurst = frame + 45)
+    ENDIF
+    FOR(i, 0, MAXP - 1)                         // physics, such as it is
+      IF(flife[i] > 0) THEN
+        SET(fx[i] = fx[i] + fvx[i])
+        SET(fy[i] = fy[i] + fvy[i])
+        SET(fvy[i] = fvy[i] + 0.04f)            // gravity never sleeps
+        SET(flife[i] = flife[i] - 1)
+        PSET(CINT(fx[i]), CINT(fy[i]), 160 + CINT(flife[i]))
+      ENDIF
+    NEXT
+    FLIP()
+    waitFrame();
+    LET(key = INKEY())
+    IF(key != 0) THEN
+      RETURN(key);
+    ENDIF
+  NEXT
+  RETURN(0);
+END_FUNCTION
+
+// ----------------------------------------------------------- timeless tunnel
+// For the Timeless heads: a dot tunnel layered over a zoom-feedback
+// backbuffer. Page 1 is the hidden accumulator - every frame it gets pulled
+// toward the viewer and faded, fresh rings are drawn on top, glow sprites
+// orbit over everything, and the result is PCOPYed back for next time.
+FUNCTION(timelessTunnel() AS INTEGER)
+  SCREEN(13)
+  OUT(0x3C8, 0)                                 // ember palette
+  FOR(i, 0, 255)
+    OUT(0x3C9, i / 4)
+    OUT(0x3C9, i * i / 1020)
+    OUT(0x3C9, i / 8)
+  NEXT
+  PAGES(2)
+  ACTIVE_PAGE(0)
+  FOR(dy, -7, 7)                                // paint a little glow orb
+    FOR(dx, -7, 7)
+      LET(dist = dx * dx + dy * dy)
+      IF(dist <= 49) THEN
+        PSET(8 + dx, 8 + dy, 255 - dist * 3)
+      ENDIF
+    NEXT
+  NEXT
+  DIM(orb AS SPRITE)
+  GET_SPRITE(1, 1, 15, 15, orb)
+  CLS()
+  FOR(frame, 1, 280)
+    FOR(y, 0, 199)                              // feedback: zoom the hidden page in, fading
+      FOR(x, 0, 319)
+        ACTIVE_PAGE(1)
+        LET(glow = POINT(160 + CINT((x - 160) * 0.93f), 100 + CINT((y - 100) * 0.93f)))
+        ACTIVE_PAGE(0)
+        IF(glow > 4) THEN
+          PSET(x, y, glow - 4)
+        ELSE
+          PSET(x, y, 0)
+        ENDIF
+      NEXT
+    NEXT
+    FOR(ring, 0, 7)                             // the tunnel: dot rings flying outward
+      LET(depth = 286 - ((frame * 6 + ring * 32) MOD 256))
+      LET(radius = 9000.0f / depth)
+      FOR(dot, 0, 15)
+        LET(angle = dot * CSNG(PI) / 8.0f + frame * 0.02f + depth * 0.01f)
+        PSET(160 + CINT(radius * CSNG(COS(angle))), 100 + CINT(radius * CSNG(SIN(angle)) * 0.7f), 255)
+      NEXT
+    NEXT
+    // a pair of orbiting glow sprites on top
+    PUT_SPRITE(152 + CINT(90.0f * CSNG(COS(frame * 0.07f))), 92 + CINT(55.0f * CSNG(SIN(frame * 0.05f))), orb, OR)
+    PUT_SPRITE(152 + CINT(90.0f * CSNG(COS(frame * 0.06f + 3.0f))), 92 + CINT(55.0f * CSNG(SIN(frame * 0.04f + 1.5f))), orb, OR)
+    PCOPY(0, 1)                                 // remember tonight for tomorrow
+    FLIP()
+    waitFrame();
+    LET(key = INKEY())
+    IF(key != 0) THEN
+      RETURN(key);
+    ENDIF
+  NEXT
+  RETURN(0);
+END_FUNCTION
 
 // ----------------------------------------------------------------- shadebobs
 // Additive blobs on Lissajous orbits, burning into an ember palette.
-SUB(shadeBobs())
+FUNCTION(shadeBobs() AS INTEGER)
   SCREEN(13)
   OUT(0x3C8, 0)
   FOR(i, 0, 255)
@@ -121,16 +458,18 @@ SUB(shadeBobs())
     SET(t = t + 0.04)
     FLIP()
     waitFrame();
-    IF(INKEY() != 0) THEN
-      EXIT_SUB
+    LET(key = INKEY())
+    IF(key != 0) THEN
+      RETURN(key);
     ENDIF
   NEXT
-END_SUB
+  RETURN(0);
+END_FUNCTION
 
 // ------------------------------------------------------------------ rotozoom
 // The obligatory rotozoomer - in 65536 colours, because the VESA headache
 // has to pay rent. The & 31 is a real bitmask; AND would be a lie here.
-SUB(rotozoom())
+FUNCTION(rotozoom() AS INTEGER)
   SCREEN(0x10E)                                 // 320x200, 16bpp
   FOR(frame, 1, 200)
     LET(angle = frame * 0.04)
@@ -150,28 +489,57 @@ SUB(rotozoom())
     NEXT
     FLIP()
     waitFrame();
-    IF(INKEY() != 0) THEN
-      EXIT_SUB
+    LET(key = INKEY())
+    IF(key != 0) THEN
+      RETURN(key);
     ENDIF
   NEXT
-END_SUB
+  RETURN(0);
+END_FUNCTION
 
 FUNCTION(main() AS INTEGER)
+  RANDOMIZE_TIMER()
+  DIM(key AS INTEGER)
+  SET(key = 0)
   DO
-    copperBars();
-    IF(INKEY() != 0) THEN
+    SET(key = copperBars())
+    IF(key == 27) THEN
       BREAK;
     ENDIF
-    plasma();
-    IF(INKEY() != 0) THEN
+    SET(key = plasma())
+    IF(key == 27) THEN
       BREAK;
     ENDIF
-    shadeBobs();
-    IF(INKEY() != 0) THEN
+    SET(key = fire())
+    IF(key == 27) THEN
       BREAK;
     ENDIF
-    rotozoom();
-    IF(INKEY() != 0) THEN
+    SET(key = starfield())
+    IF(key == 27) THEN
+      BREAK;
+    ENDIF
+    SET(key = cube3d())
+    IF(key == 27) THEN
+      BREAK;
+    ENDIF
+    SET(key = spriteBounce())
+    IF(key == 27) THEN
+      BREAK;
+    ENDIF
+    SET(key = fireworks())
+    IF(key == 27) THEN
+      BREAK;
+    ENDIF
+    SET(key = timelessTunnel())
+    IF(key == 27) THEN
+      BREAK;
+    ENDIF
+    SET(key = shadeBobs())
+    IF(key == 27) THEN
+      BREAK;
+    ENDIF
+    SET(key = rotozoom())
+    IF(key == 27) THEN
       BREAK;
     ENDIF
   LOOP_FOREVER

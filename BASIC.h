@@ -361,7 +361,14 @@ inline int __vga_read_plane = 0;            // graphics controller register 4 (r
 inline int __vga_bank = 0;                  // SVGA bank: which 64KB slice the A000 window shows
 inline int __vga_pixel_bits = 8;            // 8 (palette), 15, 16 or 24 - truecolor is a VESA headache
 inline int __vga_bytes_per_pixel = 1;       // little-endian bytes per pixel in the framebuffer
+inline int __vga_pages = 1;                 // video pages: VRAM holds them back to back
+inline int __vga_active_page = 0;           // where PSET & friends draw
+inline int __vga_visual_page = 0;           // what FLIP shows
 inline unsigned char __vga_palette[256][3]; // 6-bit DAC values, like mother nature intended
+
+inline size_t __VGA_PAGE_BYTES() {
+  return static_cast<size_t>(__vga_width) * __vga_height * __vga_bytes_per_pixel;
+}
 
 inline void __VGA_DEFAULT_PALETTE() {
   // 0-15: the EGA sixteen
@@ -424,6 +431,9 @@ inline void __GRAPHICS_IMPL(int width, int height, int colors = 256, unsigned vi
   __vga_plane_mask = 0xF;
   __vga_read_plane = 0;
   __vga_bank = 0;
+  __vga_pages = 1;
+  __vga_active_page = 0;
+  __vga_visual_page = 0;
   __vga_framebuffer.assign(width > 0 ? static_cast<size_t>(width) * height * __vga_bytes_per_pixel : 0, 0);
   __VGA_DEFAULT_PALETTE();
   if (colors == 4) {
@@ -526,21 +536,25 @@ inline void __CGA_PALETTE_IMPL(int palette) {
 }
 #define CGA_PALETTE(palette) __CGA_PALETTE_IMPL(palette);
 
+inline int __VGA_PIXEL(int page, int x, int y) { // raw page-relative read, no bounds check
+  const auto base = __VGA_PAGE_BYTES() * page + (static_cast<size_t>(y) * __vga_width + x) * __vga_bytes_per_pixel;
+  auto value = 0;
+  for (auto part = __vga_bytes_per_pixel - 1; part >= 0; --part)
+    value = (value << 8) | __vga_framebuffer[base + part];
+  return value;
+}
+
 inline void __PSET_IMPL(int x, int y, int color) {
   if (x < 0 || y < 0 || x >= __vga_width || y >= __vga_height) return;
   auto value = color & __vga_color_mask;
-  const auto base = (static_cast<size_t>(y) * __vga_width + x) * __vga_bytes_per_pixel;
+  const auto base = __VGA_PAGE_BYTES() * __vga_active_page + (static_cast<size_t>(y) * __vga_width + x) * __vga_bytes_per_pixel;
   for (auto part = 0; part < __vga_bytes_per_pixel; ++part, value >>= 8)
     __vga_framebuffer[base + part] = static_cast<BYTE>(value & 0xFF); // little-endian, like the bus
 }
 
 inline int __POINT_IMPL(int x, int y) {
   if (x < 0 || y < 0 || x >= __vga_width || y >= __vga_height) return -1;
-  const auto base = (static_cast<size_t>(y) * __vga_width + x) * __vga_bytes_per_pixel;
-  auto value = 0;
-  for (auto part = __vga_bytes_per_pixel - 1; part >= 0; --part)
-    value = (value << 8) | __vga_framebuffer[base + part];
-  return value;
+  return __VGA_PIXEL(__vga_active_page, x, y);
 }
 
 #define PSET(x, y, color) __PSET_IMPL(x, y, color);
@@ -647,8 +661,8 @@ inline STRING __VGA_RENDER() {
   for (auto y = 0; y < __vga_height; y += 2) {
     auto lastTop = -1, lastBottom = -1;
     for (auto x = 0; x < __vga_width; ++x) {
-      const auto topPixel = __POINT_IMPL(x, y);
-      const auto bottomPixel = y + 1 < __vga_height ? __POINT_IMPL(x, y + 1) : 0;
+      const auto topPixel = __VGA_PIXEL(__vga_visual_page, x, y);
+      const auto bottomPixel = y + 1 < __vga_height ? __VGA_PIXEL(__vga_visual_page, x, y + 1) : 0;
       if (topPixel != lastTop) {
         int r, g, b;
         __VGA_RGB(topPixel, r, g, b);
@@ -676,6 +690,40 @@ inline void __FLIP_IMPL() {
   std::cout.flush();
 }
 #define FLIP() __FLIP_IMPL();
+
+// ===========================================================================
+// Video pages, QB 4.5 style. PAGES(n) allocates n pages of VRAM back to
+// back, ACTIVE_PAGE picks where drawing goes, VISUAL_PAGE what FLIP shows,
+// PCOPY blits one page over another. Your hidden backbuffer for feedback
+// effects - exactly how the big demos layered their tricks.
+// ===========================================================================
+inline void __PAGES_IMPL(int count) {
+  if (count < 1) count = 1;
+  __vga_pages = count;
+  __vga_active_page = 0;
+  __vga_visual_page = 0;
+  __vga_framebuffer.assign(__VGA_PAGE_BYTES() * count, 0);
+}
+
+inline void __ACTIVE_PAGE_IMPL(int page) {
+  if (page >= 0 && page < __vga_pages) __vga_active_page = page;
+}
+
+inline void __VISUAL_PAGE_IMPL(int page) {
+  if (page >= 0 && page < __vga_pages) __vga_visual_page = page;
+}
+
+inline void __PCOPY_IMPL(int source, int destination) {
+  if (source < 0 || destination < 0 || source >= __vga_pages || destination >= __vga_pages || source == destination) return;
+  const auto bytes = __VGA_PAGE_BYTES();
+  std::copy_n(__vga_framebuffer.begin() + static_cast<std::ptrdiff_t>(bytes) * source, bytes,
+              __vga_framebuffer.begin() + static_cast<std::ptrdiff_t>(bytes) * destination);
+}
+
+#define PAGES(count) __PAGES_IMPL(count);
+#define ACTIVE_PAGE(page) __ACTIVE_PAGE_IMPL(page);
+#define VISUAL_PAGE(page) __VISUAL_PAGE_IMPL(page);
+#define PCOPY(source, destination) __PCOPY_IMPL(source, destination);
 
 // ===========================================================================
 // PEEK / POKE / DEF SEG. One flat megabyte of perfectly fake RAM with honest
@@ -712,10 +760,9 @@ inline int __PEEK_IMPL(unsigned offset) {
   const auto window = __VGA_WINDOW_SIZE();
   if (window > 0 && physical >= __vga_video_base && physical - __vga_video_base < window) {
     const size_t rel = physical - __vga_video_base;
-    if (__vga_unchained) { // planar read: read map select picks the plane
-      const auto stride = static_cast<size_t>(__vga_width) / 4;
-      const auto y = rel / stride, x = (rel % stride) * 4 + __vga_read_plane;
-      return y < static_cast<size_t>(__vga_height) ? __vga_framebuffer[y * __vga_width + x] : 0;
+    if (__vga_unchained) { // planar read: read map select picks the plane; offsets span all pages
+      const auto target = rel * 4 + __vga_read_plane;
+      return target < __vga_framebuffer.size() ? __vga_framebuffer[target] : 0;
     }
     const auto target = (__VGA_BANKED() ? static_cast<size_t>(__vga_bank) * 0x10000 : 0) + rel;
     return target < __vga_framebuffer.size() ? __vga_framebuffer[target] : 0;
@@ -729,13 +776,13 @@ inline void __POKE_IMPL(unsigned offset, int value) {
   const auto window = __VGA_WINDOW_SIZE();
   if (window > 0 && physical >= __vga_video_base && physical - __vga_video_base < window) {
     const size_t rel = physical - __vga_video_base;
-    if (__vga_unchained) { // planar write: one address, up to four pixels, map mask decides
-      const auto stride = static_cast<size_t>(__vga_width) / 4;
-      const auto y = rel / stride, baseX = (rel % stride) * 4;
-      if (y < static_cast<size_t>(__vga_height))
-        for (auto plane = 0; plane < 4; ++plane)
-          if (__vga_plane_mask & (1 << plane))
-            __vga_framebuffer[y * __vga_width + baseX + plane] = static_cast<BYTE>(value & 0xFF);
+    if (__vga_unchained) { // planar write: one address, up to four pixels, map mask decides; offsets span all pages
+      for (auto plane = 0; plane < 4; ++plane)
+        if (__vga_plane_mask & (1 << plane)) {
+          const auto target = rel * 4 + plane;
+          if (target < __vga_framebuffer.size())
+            __vga_framebuffer[target] = static_cast<BYTE>(value & 0xFF);
+        }
       return;
     }
     const auto target = (__VGA_BANKED() ? static_cast<size_t>(__vga_bank) * 0x10000 : 0) + rel;
@@ -945,8 +992,10 @@ void __PRINT_IMPL(Args&&... args) {
 #define PRINT(...) do { __PRINT_IMPL(__VA_ARGS__); } while(0);
 
 inline void __CLS_IMPL() {
-  if (__vga_width > 0) // graphics mode: CLS wipes the framebuffer
-    std::fill(__vga_framebuffer.begin(), __vga_framebuffer.end(), static_cast<BYTE>(0));
+  if (__vga_width > 0) { // graphics mode: CLS wipes the ACTIVE page only
+    const auto bytes = __VGA_PAGE_BYTES();
+    std::fill_n(__vga_framebuffer.begin() + static_cast<std::ptrdiff_t>(bytes) * __vga_active_page, bytes, static_cast<BYTE>(0));
+  }
 
   const HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
   CONSOLE_SCREEN_BUFFER_INFO csbi;

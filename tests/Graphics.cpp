@@ -319,6 +319,29 @@ FUNCTION(main() AS INTEGER)
   check(rowColorA != rowColorB AND rowColorA + rowColorB == 3, "PAINT_PATTERN tiles by row");
   check(POINT(205, 110) == POINT(215, 110), "pattern is consistent across a row");
 
+  // ----- video pages: the hidden backbuffer (PCOPY like it's QB 4.5) ----------------------------------------------
+  SCREEN(13)
+  PAGES(2)
+  ACTIVE_PAGE(1)
+  PSET(5, 5, 9)
+  check(POINT(5, 5) == 9, "drawing lands on the active page");
+  ACTIVE_PAGE(0)
+  check(POINT(5, 5) == 0, "the visible page stays untouched");
+  LET(visibleFrame = __VGA_RENDER())
+  VISUAL_PAGE(1)
+  LET(hiddenFrame = __VGA_RENDER())
+  check(visibleFrame != hiddenFrame, "FLIP shows the visual page");
+  VISUAL_PAGE(0)
+  PCOPY(1, 0)
+  check(POINT(5, 5) == 9, "PCOPY blits the hidden page across");
+  ACTIVE_PAGE(1)
+  CLS()
+  check(POINT(5, 5) == 0, "CLS clears only the active page");
+  ACTIVE_PAGE(0)
+  check(POINT(5, 5) == 9, "the other page survives CLS");
+  ACTIVE_PAGE(7)
+  check(POINT(5, 5) == 9, "out-of-range page selects are ignored");
+
   // ----- back to text mode ---------------------------------------------------------------------------------------
   SCREEN(0)
   check(SCREEN_WIDTH() == 0, "SCREEN 0 returns to text mode");
