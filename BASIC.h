@@ -1,6 +1,10 @@
 ﻿#pragma once
 
 #include <iostream>
+#include <string>   // STRING, CSTR
+#include <cstring>  // LEN(char*)
+#include <cstdlib>  // RND, RANDOMIZE_TIMER, RUN
+#include <ctime>    // TIMER, RANDOMIZE_TIMER
 #include <windows.h>
 #include <conio.h>
 
