@@ -137,6 +137,130 @@ FUNCTION(main() AS INTEGER)
   DEF_SEG(0)
   check(PEEK(0) == 99, "FFFF:0010 wraps to 0000:0000 (the A20 line is off in this house)");
 
+  // ----- OUT 3C8/3C9: DAC programming like a demo coder ------------------------------------------------------------
+  SCREEN(13)
+  OUT(0x3C8, 100)
+  OUT(0x3C9, 10)
+  OUT(0x3C9, 20)
+  OUT(0x3C9, 30)
+  check(__vga_palette[100][0] == 10 AND __vga_palette[100][1] == 20 AND __vga_palette[100][2] == 30, "OUT 3C8/3C9 programs a DAC entry");
+  OUT(0x3C9, 1)
+  OUT(0x3C9, 2)
+  OUT(0x3C9, 3)
+  check(__vga_palette[101][0] == 1, "DAC write index auto-increments");
+  OUT(0x3C8, 102)
+  OUT(0x3C9, 0xFF)
+  check(__vga_palette[102][0] == 63, "DAC values are six bits, the rest falls off");
+
+  OUT(0x3C7, 100)
+  check(INP(0x3C9) == 10 AND INP(0x3C9) == 20 AND INP(0x3C9) == 30, "INP 3C7/3C9 reads a DAC entry back");
+  check(INP(0x3C9) == 1, "DAC read index auto-increments");
+
+  LET(retraceA = INP(0x3DA) AND 8)
+  LET(retraceB = INP(0x3DA) AND 8)
+  check(retraceA != retraceB, "3DA retrace bit toggles every read");
+  WAIT(0x3DA, 8)                               // must terminate - the world's most cooperative retrace
+  check(TRUE, "WAIT for vertical retrace returns");
+
+  OUT(0x123, 77)
+  check(INP(0x123) == 77, "unknown ports are a junk drawer");
+
+  // ----- mode X/Y/Z: unchained planar madness -----------------------------------------------------------------------
+  MODE_X()
+  check(SCREEN_WIDTH() == 320 AND SCREEN_HEIGHT() == 240 AND SCREEN_COLORS() == 256, "mode X is 320x240x256");
+  DEF_SEG(0xA000)
+  OUT(0x3C4, 2)
+  OUT(0x3C5, 0xF)                              // all planes
+  POKE(0, 9)
+  check(POINT(0, 0) == 9 AND POINT(1, 0) == 9 AND POINT(2, 0) == 9 AND POINT(3, 0) == 9, "unchained POKE writes four pixels");
+  OUT(0x3C5, 2)                                // plane 1 only
+  POKE(80, 5)                                  // row 1 (stride is width/4 = 80)
+  check(POINT(1, 1) == 5 AND POINT(0, 1) == 0 AND POINT(2, 1) == 0, "map mask selects the plane");
+  OUT(0x3CE, 4)
+  OUT(0x3CF, 1)                                // read map select: plane 1
+  check(PEEK(80) == 5, "read map select reads the chosen plane");
+  OUT(0x3CF, 0)
+  check(PEEK(80) == 0, "and only the chosen plane");
+
+  MODE_Y()
+  check(SCREEN_WIDTH() == 320 AND SCREEN_HEIGHT() == 200, "mode Y is 320x200 unchained");
+  MODE_Z()
+  check(SCREEN_WIDTH() == 320 AND SCREEN_HEIGHT() == 400, "mode Z is 320x400 unchained");
+
+  // ----- fake VESA + bank switching -----------------------------------------------------------------------------------
+  SCREEN(0x101)
+  check(SCREEN_WIDTH() == 640 AND SCREEN_HEIGHT() == 480 AND SCREEN_COLORS() == 256, "VESA 101h is 640x480x256");
+  DEF_SEG(0xA000)
+  VESA_BANK(0)
+  POKE(0, 3)
+  check(POINT(0, 0) == 3, "bank 0 starts at the top");
+  VESA_BANK(1)
+  POKE(0, 7)                                   // physical pixel 65536 = (256, 102)
+  check(POINT(256, 102) == 7, "bank 1 shows the next 64KB slice");
+  check(POINT(0, 0) == 3, "bank switching leaves other banks alone");
+  OUT(0x3C4, 0x0E)
+  OUT(0x3C5, 3)                                // Trident bank register: 3 XOR 2 = bank 1
+  POKE(1, 8)
+  check(POINT(257, 102) == 8, "the Trident XOR-2 bank quirk is faithfully reproduced");
+  check(INP(0x3C5) == 3, "and reads back through the same fog");
+
+  SCREEN(0x103)
+  check(SCREEN_WIDTH() == 800 AND SCREEN_HEIGHT() == 600, "VESA 103h is 800x600");
+  SCREEN(0x105)
+  check(SCREEN_WIDTH() == 1024 AND SCREEN_HEIGHT() == 768, "VESA 105h is 1024x768");
+
+  // ----- CGA palette select ---------------------------------------------------------------------------------------------
+  SCREEN(1)
+  CGA_PALETTE(0)
+  check(__vga_palette[1][1] == 42 AND __vga_palette[2][0] == 42 AND __vga_palette[3][1] == 21, "palette 0 is green/red/brown");
+  CGA_PALETTE(1)
+  check(__vga_palette[1][1] == 63 AND __vga_palette[1][2] == 63, "palette 1 is back to cyan");
+
+  // ----- GET / PUT sprites ----------------------------------------------------------------------------------------------
+  SCREEN(13)
+  PSET(0, 0, 1)
+  PSET(1, 0, 2)
+  PSET(0, 1, 3)
+  PSET(1, 1, 4)
+  DIM(ship AS SPRITE)
+  GET_SPRITE(0, 0, 1, 1, ship)
+  check(SPRITE_WIDTH(ship) == 2 AND SPRITE_HEIGHT(ship) == 2, "GET captures the rectangle");
+
+  PUT_SPRITE(10, 10, ship, PSET)
+  check(POINT(10, 10) == 1 AND POINT(11, 11) == 4, "PUT PSET stamps the sprite");
+
+  PUT_SPRITE(20, 20, ship, XOR)
+  check(POINT(20, 20) == 1, "PUT XOR on empty background draws");
+  PUT_SPRITE(20, 20, ship, XOR)
+  check(POINT(20, 20) == 0 AND POINT(21, 21) == 0, "PUT XOR twice erases - the oldest trick in the book");
+
+  LINE_BF(30, 30, 31, 31, 255)
+  PUT_SPRITE(30, 30, ship, AND)
+  check(POINT(30, 30) == 1 AND POINT(31, 31) == 4, "PUT AND masks");
+  PUT_SPRITE(40, 40, ship, OR)
+  check(POINT(40, 40) == 1, "PUT OR merges");
+  PUT_SPRITE(50, 50, ship, PRESET)
+  check(POINT(50, 50) == 254, "PUT PRESET inverts");
+
+  GET(60, 60, 61, 61, ship)                    // the true believers' aliases
+  PUT(60, 60, ship, PSET)
+  check(SPRITE_WIDTH(ship) == 2, "GET/PUT aliases work too");
+
+  // ----- PAINT with borders and patterns ---------------------------------------------------------------------------------
+  LINE_B(100, 100, 120, 120, 5)
+  PSET(105, 105, 9)                            // a multicoloured interior
+  PAINT_BORDER(110, 110, 6, 5)
+  check(POINT(110, 110) == 6 AND POINT(105, 105) == 6, "PAINT_BORDER floods everything inside the border");
+  check(POINT(100, 100) == 5 AND POINT(99, 110) == 0, "PAINT_BORDER respects the border");
+
+  LINE_B(200, 100, 220, 120, 5)
+  LET(tile = CHR$(1) + CHR$(2))                // two rows: colour 1, colour 2
+  PAINT_PATTERN(210, 110, tile, 1, 5)
+  LET(rowColorA = POINT(210, 110))
+  LET(rowColorB = POINT(210, 111))
+  check(rowColorA != rowColorB AND rowColorA + rowColorB == 3, "PAINT_PATTERN tiles by row");
+  check(POINT(205, 110) == POINT(215, 110), "pattern is consistent across a row");
+
   // ----- back to text mode ---------------------------------------------------------------------------------------
   SCREEN(0)
   check(SCREEN_WIDTH() == 0, "SCREEN 0 returns to text mode");

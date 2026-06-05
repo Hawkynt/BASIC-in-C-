@@ -346,6 +346,10 @@ inline int __vga_width = 0;
 inline int __vga_height = 0;
 inline int __vga_color_mask = 255;          // colours-1 of the active mode; PSET masks with it
 inline unsigned __vga_video_base = 0xA0000; // physical base of the video window (mode-dependent)
+inline bool __vga_unchained = false;        // mode X/Y/Z: the A000 window is planar, 4 pixels per address
+inline int __vga_plane_mask = 0xF;          // sequencer register 2 (map mask) - which planes POKE writes
+inline int __vga_read_plane = 0;            // graphics controller register 4 (read map select) - which plane PEEK reads
+inline int __vga_bank = 0;                  // SVGA bank: which 64KB slice the A000 window shows
 inline unsigned char __vga_palette[256][3]; // 6-bit DAC values, like mother nature intended
 
 inline void __VGA_DEFAULT_PALETTE() {
@@ -400,6 +404,10 @@ inline void __GRAPHICS_IMPL(int width, int height, int colors = 256, unsigned vi
   __vga_height = height;
   __vga_color_mask = colors - 1;
   __vga_video_base = videoBase;
+  __vga_unchained = false;
+  __vga_plane_mask = 0xF;
+  __vga_read_plane = 0;
+  __vga_bank = 0;
   __vga_framebuffer.assign(width > 0 ? static_cast<size_t>(width) * height : 0, 0);
   __VGA_DEFAULT_PALETTE();
   if (colors == 4) {
@@ -436,15 +444,51 @@ inline void __SCREEN_IMPL(int mode) {
     case 9:  __GRAPHICS_IMPL(640, 350, 16,  0xA0000); break; // EGA
     case 12: __GRAPHICS_IMPL(640, 480, 16,  0xA0000); break; // VGA hi-res
     case 13: __GRAPHICS_IMPL(320, 200, 256, 0xA0000); break; // the one true mode
+    // VESA mode numbers, faithfully fake. SVGA you couldn't afford in 1992;
+    // anything over 64KB is bank-switched through the A000 window (VESA_BANK).
+    case 0x100: __GRAPHICS_IMPL(640, 400, 256);  break;
+    case 0x101: __GRAPHICS_IMPL(640, 480, 256);  break;
+    case 0x103: __GRAPHICS_IMPL(800, 600, 256);  break;
+    case 0x105: __GRAPHICS_IMPL(1024, 768, 256); break;
+    case 0x107: __GRAPHICS_IMPL(1280, 1024, 256); break; // 24-bit modes left as an exercise for the therapist
     default: __GRAPHICS_IMPL(0, 0); std::cout << "\x1b[?25h" << std::flush; break; // SCREEN(0): back to text
   }
 }
 
+// Mode X / Y / Z: the unchained 256-colour tweaks of demo-scene legend. The
+// A000 window goes planar - each address is FOUR pixels, one per plane, and
+// POKE writes whichever planes the sequencer map mask (OUT 3C4/3C5 index 2)
+// has enabled. PSET/POINT stay linear because they never lied to you.
+inline void __MODE_UNCHAINED(int width, int height) {
+  __GRAPHICS_IMPL(width, height, 256, 0xA0000);
+  __vga_unchained = true;
+}
+
 #define SCREEN(mode) __SCREEN_IMPL(mode);
 #define GRAPHICS(width, height) __GRAPHICS_IMPL(width, height);
+#define MODE_X() __MODE_UNCHAINED(320, 240);
+#define MODE_Y() __MODE_UNCHAINED(320, 200);
+#define MODE_Z() __MODE_UNCHAINED(320, 400);
+#define VESA_BANK(bank) __vga_bank = (bank);
 #define SCREEN_WIDTH() (__vga_width)
 #define SCREEN_HEIGHT() (__vga_height)
 #define SCREEN_COLORS() (__vga_color_mask + 1)
+
+// CGA palette select, like COLOR bg, p in SCREEN 1 - palette 0 is the muddy
+// green/red/brown one, palette 1 the cyan/magenta/white of childhood memories
+inline void __CGA_PALETTE_IMPL(int palette) {
+  if (__vga_color_mask != 3) return;
+  if (palette == 0) {
+    __vga_palette[1][0] = 0;  __vga_palette[1][1] = 42; __vga_palette[1][2] = 0;
+    __vga_palette[2][0] = 42; __vga_palette[2][1] = 0;  __vga_palette[2][2] = 0;
+    __vga_palette[3][0] = 42; __vga_palette[3][1] = 21; __vga_palette[3][2] = 0;
+  } else {
+    __vga_palette[1][0] = 21; __vga_palette[1][1] = 63; __vga_palette[1][2] = 63;
+    __vga_palette[2][0] = 63; __vga_palette[2][1] = 21; __vga_palette[2][2] = 63;
+    __vga_palette[3][0] = 63; __vga_palette[3][1] = 63; __vga_palette[3][2] = 63;
+  }
+}
+#define CGA_PALETTE(palette) __CGA_PALETTE_IMPL(palette);
 
 inline void __PSET_IMPL(int x, int y, int color) {
   if (x < 0 || y < 0 || x >= __vga_width || y >= __vga_height) return;
@@ -586,19 +630,51 @@ inline unsigned __BASIC_PHYSICAL(unsigned offset) {
   return (__basic_segment * 16 + offset) & 0xFFFFF; // real mode, A20 disabled
 }
 
+inline bool __VGA_BANKED() { // SVGA: more pixels than a segment can hold -> 64KB window + bank switching
+  return !__vga_unchained && __vga_video_base == 0xA0000 && __vga_framebuffer.size() > 0x10000;
+}
+
+inline size_t __VGA_WINDOW_SIZE() {
+  if (__vga_width <= 0) return 0;
+  if (__vga_unchained || __VGA_BANKED()) return 0x10000;
+  return __vga_framebuffer.size();
+}
+
 inline int __PEEK_IMPL(unsigned offset) {
   const auto physical = __BASIC_PHYSICAL(offset);
-  if (__vga_width > 0 && physical >= __vga_video_base && physical - __vga_video_base < __vga_framebuffer.size())
-    return __vga_framebuffer[physical - __vga_video_base];
+  const auto window = __VGA_WINDOW_SIZE();
+  if (window > 0 && physical >= __vga_video_base && physical - __vga_video_base < window) {
+    const size_t rel = physical - __vga_video_base;
+    if (__vga_unchained) { // planar read: read map select picks the plane
+      const auto stride = static_cast<size_t>(__vga_width) / 4;
+      const auto y = rel / stride, x = (rel % stride) * 4 + __vga_read_plane;
+      return y < static_cast<size_t>(__vga_height) ? __vga_framebuffer[y * __vga_width + x] : 0;
+    }
+    const auto target = (__VGA_BANKED() ? static_cast<size_t>(__vga_bank) * 0x10000 : 0) + rel;
+    return target < __vga_framebuffer.size() ? __vga_framebuffer[target] : 0;
+  }
   if (__basic_memory.empty()) __basic_memory.assign(0x100000, 0);
   return __basic_memory[physical];
 }
 
 inline void __POKE_IMPL(unsigned offset, int value) {
   const auto physical = __BASIC_PHYSICAL(offset);
-  if (__vga_width > 0 && physical >= __vga_video_base && physical - __vga_video_base < __vga_framebuffer.size()) {
-    __vga_framebuffer[physical - __vga_video_base] = static_cast<BYTE>(value & 0xFF);
-    return;
+  const auto window = __VGA_WINDOW_SIZE();
+  if (window > 0 && physical >= __vga_video_base && physical - __vga_video_base < window) {
+    const size_t rel = physical - __vga_video_base;
+    if (__vga_unchained) { // planar write: one address, up to four pixels, map mask decides
+      const auto stride = static_cast<size_t>(__vga_width) / 4;
+      const auto y = rel / stride, baseX = (rel % stride) * 4;
+      if (y < static_cast<size_t>(__vga_height))
+        for (auto plane = 0; plane < 4; ++plane)
+          if (__vga_plane_mask & (1 << plane))
+            __vga_framebuffer[y * __vga_width + baseX + plane] = static_cast<BYTE>(value & 0xFF);
+      return;
+    }
+    const auto target = (__VGA_BANKED() ? static_cast<size_t>(__vga_bank) * 0x10000 : 0) + rel;
+    if (target < __vga_framebuffer.size())
+      __vga_framebuffer[target] = static_cast<BYTE>(value & 0xFF);
+    return; // video region writes never fall through to RAM, just like the real bus
   }
   if (__basic_memory.empty()) __basic_memory.assign(0x100000, 0);
   __basic_memory[physical] = static_cast<BYTE>(value & 0xFF);
@@ -606,6 +682,167 @@ inline void __POKE_IMPL(unsigned offset, int value) {
 
 #define PEEK(offset) __PEEK_IMPL(offset)
 #define POKE(offset, value) __POKE_IMPL(offset, value);
+
+// ===========================================================================
+// OUT / INP / WAIT. The VGA register file, lovingly faked:
+//   3C8/3C9  DAC write index + data (three writes per entry, auto-increment)
+//   3C7/3C9  DAC read index + data - yes, palette animation via OUT works
+//   3C4/3C5  sequencer: index 2 = map mask (mode X/Y/Z plane writes),
+//            index 0Eh = Trident bank register, XOR 2 quirk faithfully
+//            reproduced because somebody out there still has nightmares
+//   3CE/3CF  graphics controller: index 4 = read map select
+//   3DA      input status: the retrace bit toggles every read, making this
+//            the world's most cooperative vertical retrace
+// Every other port is a junk drawer: INP returns what OUT last shouted at it.
+// ===========================================================================
+inline int __vga_dac_write_index = 0, __vga_dac_write_channel = 0;
+inline int __vga_dac_read_index = 0, __vga_dac_read_channel = 0;
+inline int __vga_sequencer_index = 0, __vga_gc_index = 0;
+inline int __vga_retrace_status = 0;
+inline std::map<int, BYTE> __basic_ports;
+
+inline void __OUT_IMPL(int port, int value) {
+  value &= 0xFF;
+  switch (port) {
+    case 0x3C8: __vga_dac_write_index = value; __vga_dac_write_channel = 0; break;
+    case 0x3C9:
+      __vga_palette[__vga_dac_write_index][__vga_dac_write_channel] = static_cast<unsigned char>(value & 0x3F);
+      if (++__vga_dac_write_channel == 3) {
+        __vga_dac_write_channel = 0;
+        __vga_dac_write_index = (__vga_dac_write_index + 1) & 0xFF;
+      }
+      break;
+    case 0x3C7: __vga_dac_read_index = value; __vga_dac_read_channel = 0; break;
+    case 0x3C4: __vga_sequencer_index = value; break;
+    case 0x3C5:
+      if (__vga_sequencer_index == 2) __vga_plane_mask = value & 0xF;
+      else if (__vga_sequencer_index == 0x0E) __vga_bank = value ^ 2; // thanks, Trident
+      else __basic_ports[(0x3C5 << 8) | __vga_sequencer_index] = static_cast<BYTE>(value);
+      break;
+    case 0x3CE: __vga_gc_index = value; break;
+    case 0x3CF:
+      if (__vga_gc_index == 4) __vga_read_plane = value & 3;
+      else __basic_ports[(0x3CF << 8) | __vga_gc_index] = static_cast<BYTE>(value);
+      break;
+    default: __basic_ports[port] = static_cast<BYTE>(value); break;
+  }
+}
+
+inline int __INP_IMPL(int port) {
+  switch (port) {
+    case 0x3C9: {
+      const int value = __vga_palette[__vga_dac_read_index][__vga_dac_read_channel];
+      if (++__vga_dac_read_channel == 3) {
+        __vga_dac_read_channel = 0;
+        __vga_dac_read_index = (__vga_dac_read_index + 1) & 0xFF;
+      }
+      return value;
+    }
+    case 0x3C5:
+      if (__vga_sequencer_index == 2) return __vga_plane_mask;
+      if (__vga_sequencer_index == 0x0E) return __vga_bank ^ 2; // still thanks, Trident
+      return __basic_ports.count((0x3C5 << 8) | __vga_sequencer_index) ? __basic_ports[(0x3C5 << 8) | __vga_sequencer_index] : 0;
+    case 0x3CF:
+      if (__vga_gc_index == 4) return __vga_read_plane;
+      return __basic_ports.count((0x3CF << 8) | __vga_gc_index) ? __basic_ports[(0x3CF << 8) | __vga_gc_index] : 0;
+    case 0x3DA: return __vga_retrace_status ^= 8;
+    default: return __basic_ports.count(port) ? __basic_ports[port] : 0;
+  }
+}
+
+#ifdef OUT
+#undef OUT // like IN, some windows headers claim OUT as a SAL annotation; the bus needs it more
+#endif
+#define OUT(port, value) __OUT_IMPL(port, value);
+#define INP(port) __INP_IMPL(port)
+#define WAIT(port, mask) while ((__INP_IMPL(port) & (mask)) == 0) {}
+
+// ===========================================================================
+// GET / PUT sprites, QB style. GET grabs a rectangle into a SPRITE, PUT blits
+// it back with PSET, PRESET, AND, OR or XOR (default XOR, obviously - how
+// else would you erase by drawing twice). The verb arrives via the
+// stringizer, which is the only reason AND and OR survive the preprocessor.
+// ===========================================================================
+struct __BASIC_SPRITE {
+  int width = 0;
+  int height = 0;
+  std::vector<BYTE> pixels;
+};
+#define SPRITE __BASIC_SPRITE
+#define SPRITE_WIDTH(sprite) ((sprite).width)
+#define SPRITE_HEIGHT(sprite) ((sprite).height)
+
+inline void __GET_SPRITE_IMPL(int x1, int y1, int x2, int y2, SPRITE & sprite) {
+  if (x1 > x2) std::swap(x1, x2);
+  if (y1 > y2) std::swap(y1, y2);
+  sprite.width = x2 - x1 + 1;
+  sprite.height = y2 - y1 + 1;
+  sprite.pixels.assign(static_cast<size_t>(sprite.width) * sprite.height, 0);
+  for (auto y = 0; y < sprite.height; ++y)
+    for (auto x = 0; x < sprite.width; ++x) {
+      const auto pixel = __POINT_IMPL(x1 + x, y1 + y);
+      sprite.pixels[static_cast<size_t>(y) * sprite.width + x] = static_cast<BYTE>(pixel < 0 ? 0 : pixel);
+    }
+}
+
+inline void __PUT_SPRITE_IMPL(int x, int y, const SPRITE & sprite, const STRING & verb) {
+  for (auto sy = 0; sy < sprite.height; ++sy)
+    for (auto sx = 0; sx < sprite.width; ++sx) {
+      const auto existing = __POINT_IMPL(x + sx, y + sy);
+      if (existing < 0) continue; // off screen
+      const int value = sprite.pixels[static_cast<size_t>(sy) * sprite.width + sx];
+      auto result = existing ^ value; // XOR is the default, ask any sprite
+      if (verb == "PSET") result = value;
+      else if (verb == "PRESET") result = ~value;
+      else if (verb == "AND") result = existing & value;
+      else if (verb == "OR") result = existing | value;
+      __PSET_IMPL(x + sx, y + sy, result);
+    }
+}
+
+#define GET_SPRITE(x1, y1, x2, y2, sprite) __GET_SPRITE_IMPL(x1, y1, x2, y2, sprite);
+#define PUT_SPRITE(x, y, sprite, verb) __PUT_SPRITE_IMPL(x, y, sprite, #verb);
+// the true believers' aliases
+#define GET(x1, y1, x2, y2, sprite) __GET_SPRITE_IMPL(x1, y1, x2, y2, sprite);
+#define PUT(x, y, sprite, verb) __PUT_SPRITE_IMPL(x, y, sprite, #verb);
+
+// ===========================================================================
+// PAINT, extended family. PAINT_BORDER floods until it hits the border
+// colour (QB's PAINT (x,y), c, border). PAINT_PATTERN floods the same way
+// but fills with a tile: a string where each character is one pixel colour,
+// tileWidth pixels per row - build it with CHR$ like it's 1991.
+// ===========================================================================
+inline void __PAINT_FLOOD(int x, int y, int borderColor, const STRING & tile, int tileWidth) {
+  if (__vga_width <= 0 || tile.empty() || tileWidth < 1) return;
+  const auto start = __POINT_IMPL(x, y);
+  if (start < 0 || start == borderColor) return;
+  const auto tileHeight = (static_cast<int>(tile.length()) + tileWidth - 1) / tileWidth;
+  std::vector<bool> visited(static_cast<size_t>(__vga_width) * __vga_height, false);
+  std::vector<std::pair<int, int>> stack{{x, y}};
+  while (!stack.empty()) {
+    const auto [px, py] = stack.back();
+    stack.pop_back();
+    if (px < 0 || py < 0 || px >= __vga_width || py >= __vga_height) continue;
+    const auto index = static_cast<size_t>(py) * __vga_width + px;
+    if (visited[index]) continue;
+    visited[index] = true;
+    if (__POINT_IMPL(px, py) == borderColor) continue;
+    const auto cell = (py % tileHeight) * tileWidth + (px % tileWidth);
+    if (cell < static_cast<int>(tile.length()))
+      __PSET_IMPL(px, py, static_cast<unsigned char>(tile[cell]));
+    stack.push_back({px + 1, py});
+    stack.push_back({px - 1, py});
+    stack.push_back({px, py + 1});
+    stack.push_back({px, py - 1});
+  }
+}
+
+inline void __PAINT_BORDER_IMPL(int x, int y, int color, int borderColor) {
+  __PAINT_FLOOD(x, y, borderColor, STRING(1, static_cast<char>(color)), 1);
+}
+
+#define PAINT_BORDER(x, y, color, borderColor) __PAINT_BORDER_IMPL(x, y, color, borderColor);
+#define PAINT_PATTERN(x, y, tile, tileWidth, borderColor) __PAINT_FLOOD(x, y, borderColor, tile, tileWidth);
 
 // I/O
 #define SLEEP(ms) Sleep(ms);

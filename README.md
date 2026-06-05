@@ -207,6 +207,77 @@ DEF_SEG(0xA001)
 PRINT(PEEK(100 * 320 + 144))     // still 12 - same physical byte
 ```
 
+### 🔌 OUT / INP / WAIT — the register file, lovingly faked
+
+The VGA's most beloved ports answer like the real thing:
+
+```cpp
+OUT(0x3C8, 32)                   // DAC write index...
+OUT(0x3C9, 63) OUT(0x3C9, 0) OUT(0x3C9, 0)   // ...three writes, auto-increment: palette animation works
+OUT(0x3C7, 32)                   // DAC read index
+PRINT(INP(0x3C9))                // 63 - read it right back
+WAIT(0x3DA, 8)                   // wait for vertical retrace (the world's most cooperative retrace:
+                                 // the bit toggles every read, so your demo never hangs)
+```
+
+Every other port is a junk drawer: `INP` returns whatever `OUT` last shouted at it.
+
+### 🌀 Mode X / Y / Z — unchained melody
+
+The demo-scene tweaks, planar semantics included. One address = four pixels;
+the sequencer map mask (`OUT 3C4/3C5`, index 2) picks which planes `POKE`
+writes, the read map select (`OUT 3CE/3CF`, index 4) picks which plane `PEEK`
+reads:
+
+```cpp
+MODE_X()                         // 320x240x256, square pixels, Carmack approved
+DEF_SEG(0xA000)
+OUT(0x3C4, 2) OUT(0x3C5, 0xF)    // all four planes
+POKE(0, 9)                       // writes pixels (0,0) through (3,0) in one byte. unchained!
+```
+
+`MODE_Y()` is 320×200, `MODE_Z()` 320×400. `PSET`/`POINT` stay linear because they never lied to you.
+
+### 💸 Fake VESA — SVGA you couldn't afford in 1992
+
+`SCREEN(0x100)` 640×400, `SCREEN(0x101)` 640×480, `SCREEN(0x103)` 800×600,
+`SCREEN(0x105)` 1024×768, `SCREEN(0x107)` 1280×1024 — all 256 colours.
+Anything bigger than 64KB is **bank-switched through the A000 window**:
+
+```cpp
+SCREEN(0x101)
+VESA_BANK(1)                     // the window now shows the second 64KB slice
+POKE(0, 7)                       // pixel 65536 = (256, 102)
+
+OUT(0x3C4, 0x0E)                 // or do it the Trident way:
+OUT(0x3C5, 3)                    // bank = 3 XOR 2 = 1. the famous quirk, faithfully reproduced,
+                                 // because somebody out there still has nightmares
+```
+
+### 👾 GET / PUT sprites
+
+```cpp
+DIM(ship AS SPRITE)
+GET(0, 0, 7, 7, ship)            // grab an 8x8 block
+PUT(100, 50, ship, XOR)          // draw it (XOR is the default, ask any sprite)
+PUT(100, 50, ship, XOR)          // ...and erase it. the oldest trick in the book
+```
+
+Verbs: `PSET`, `PRESET` (inverts), `AND`, `OR`, `XOR` — smuggled past the
+preprocessor through the stringizer, which is the only reason `AND` and `OR`
+survive. `GET_SPRITE`/`PUT_SPRITE` aliases exist for the cautious.
+
+### 🎨 PAINT, extended family
+
+```cpp
+PAINT_BORDER(110, 110, 6, 5)               // flood with 6 until colour-5 walls (QB's PAINT ,,border)
+PAINT_PATTERN(110, 110, CHR$(1) + CHR$(2), 1, 5)   // tiled fill: build patterns with CHR$ like it's 1991
+```
+
+Each character of the tile string is one pixel colour, `tileWidth` pixels per
+row. `CGA_PALETTE(0)` flips SCREEN 1 to the muddy green/red/brown set and
+back with `CGA_PALETTE(1)`.
+
 ### 🎵 SOUND & PLAY
 
 A real Music Macro Language parser, straight out of QBasic — `Beep()` reroutes
