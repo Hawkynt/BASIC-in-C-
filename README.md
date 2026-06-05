@@ -97,7 +97,7 @@ Except this time, it's **C++** wearing BASIC's skin.
 | `CLS()`        | Clears screen (WinAPI / ANSI, no system())|
 | `LOCATE(y,x)`  | Moves cursor to line/column              |
 | `COLOR(fg,bg)` | DOS colours via console API or ANSI      |
-| `INKEY()`      | Non-blocking key; POSIX arrows arrive as DOS scan codes |
+| `INKEY()`      | Non-blocking key; one press = one code on every OS (extended-key prefixes swallowed, POSIX arrows arrive as DOS scan codes) |
 
 Yes, **it runs on Linux and macOS too** — the header carries a Win32 backend
 and a POSIX backend (termios + ANSI), and the terminal was the real hardware
@@ -432,12 +432,13 @@ greetings to everyone who ever owned a Gravis Ultrasound.
 ## 🐍 Example: Snake in BASIC.h
 
 Just look inside this repository's **ConsoleSnake** solution to see how weird
-this can be — now in full colour without ever leaving text mode: a bordered
-arena, a live score line, blinking golden `$` power-ups that pay five points
-and two segments, and magenta `%` enemies that crash the party every fifth
-fruit and wander drunkenly toward your demise. The pace quickens with every
-point. Arrow keys steer on every OS (POSIX arrows arrive pre-translated as
-DOS scan codes), ESC surrenders with dignity.
+this can be — a square 40×40 arena rendered as half-block cells (one
+character = two stacked square pixels, so the snake is finally square instead
+of 1:2-stretched) that auto-fits your terminal: a border ring, a score bar of
+arcade pips along the top, blinking golden power-ups that pay five points and
+two segments, and magenta enemies that crash the party every fifth fruit and
+wander drunkenly toward your demise. The pace quickens with every point.
+Arrow keys steer on every OS, ESC surrenders with dignity.
 
 Yes, I made this compile.
 Yes, it moves a snake across the console.
