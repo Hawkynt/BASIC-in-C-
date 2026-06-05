@@ -71,7 +71,8 @@ Except this time, it's **C++** wearing BASIC's skin.
 | `IF x > 0 THEN`  | `IF(x > 0) THEN`                |
 | `ELSE`           | `ELSE`                          |
 | `ENDIF`          | `ENDIF`                         |
-| `FOR i = 1 TO 5` | `FOR(i, 1, 5)`                  |
+| `FOR i = 1 TO 5` | `FOR(i, 1 TO 5)` (yes, a real `TO`) |
+| `FOR i = 9 TO 1 STEP -2` | `FOR(i, 9 TO 1 STEP -2)` (a real `STEP` too) |
 | `NEXT`           | `NEXT`                          |
 | `FOR EACH x IN xs` | `FOR_EACH(x IN xs)` (yes, a real `IN`) |
 | `DO WHILE c ... LOOP` | `DO_WHILE(c) ... LOOP`     |
@@ -197,9 +198,11 @@ mode's depth like the attribute registers of old.
 **It fits your window.** `SCREEN` politely asks the terminal to resize
 (xterm-style escape; plenty refuse), and `FLIP()` measures what it actually
 got and **downscales the frame uniformly** to fit — `SCREEN(13)` in an 80×25
-console just works, only chunkier. Bigger terminals render 1:1, aspect is
-preserved (one cell = two pixels), and `WINDOW_FIT(FALSE)` restores raw 1:1
-output for purists who enjoy line wrap.
+console just works, only chunkier. The scaler is a proper **box filter**:
+every cell averages all the pixels it covers, so lone stars dim gracefully
+instead of flickering out of existence. Bigger terminals render 1:1, aspect
+is preserved (one cell = two pixels), and `WINDOW_FIT(FALSE)` restores raw
+1:1 output for purists who enjoy line wrap.
 
 **Video pages, QB 4.5 style:** `PAGES(2)` allocates VRAM pages back to back,
 `ACTIVE_PAGE(n)` picks where drawing goes, `VISUAL_PAGE(n)` what `FLIP()`
@@ -405,7 +408,7 @@ This entire monstrosity operates on a volatile cocktail of macro abuse, template
 
 ## 🪩 Example: SECOND UNREALITY
 
-`Demos/SecondUnreality.cpp` is a ten-part demoscene production written
+`Demos/SecondUnreality.cpp` is an eleven-part demoscene production written
 entirely in the dialect, vsynced on `INP(&H3DA)` like nature intended:
 
 1. **Copper bars** — the screen is painted once, then only the DAC moves (pure `OUT 3C8/3C9`)
@@ -415,9 +418,10 @@ entirely in the dialect, vsynced on `INP(&H3DA)` like nature intended:
 5. **Wireframe cube** — rotating 3D, edge list read from `DATA` statements like level data of old
 6. **Sprite bounce** — a radially shaded ball, `GET` once, `PUT` five times a frame, rectangular clipping included free of charge
 7. **Fireworks** — particles, gravity, and trails burned in by never quite clearing the screen
-8. **Timeless tunnel** — a dot tunnel layered over a hidden zoom-feedback backbuffer (`PAGES`/`PCOPY`), glow sprites orbiting on top — for the Timeless heads
-9. **Shadebobs** — additive blobs on Lissajous orbits
-10. **Rotozoom** — in 16-bit truecolor, because the VESA headache has to pay rent
+8. **Marquees** — sine-wobbled, hue-cycled scrolltext in all four directions, rendered from a 5×5 font ROM stored in `DATA` statements like a proper type-in listing
+9. **Timeless tunnel** — a dot tunnel layered over a hidden zoom-feedback backbuffer (`PAGES`/`PCOPY`), glow sprites orbiting on top — for the Timeless heads
+10. **Shadebobs** — additive blobs on Lissajous orbits
+11. **Rotozoom** — in 16-bit truecolor, because the VESA headache has to pay rent
 
 It's all BASIC now, like the Kukoo2 Pleasure Access intro promised, with a
 Second Reality chaser. Any key skips to the next part, ESC leaves the party;
@@ -427,7 +431,13 @@ greetings to everyone who ever owned a Gravis Ultrasound.
 
 ## 🐍 Example: Snake in BASIC.h
 
-Just look inside this repository's **ConsoleSnake** solution to see how weird this can be.
+Just look inside this repository's **ConsoleSnake** solution to see how weird
+this can be — now in full colour without ever leaving text mode: a bordered
+arena, a live score line, blinking golden `$` power-ups that pay five points
+and two segments, and magenta `%` enemies that crash the party every fifth
+fruit and wander drunkenly toward your demise. The pace quickens with every
+point. Arrow keys steer on every OS (POSIX arrows arrive pre-translated as
+DOS scan codes), ESC surrenders with dignity.
 
 Yes, I made this compile.
 Yes, it moves a snake across the console.
