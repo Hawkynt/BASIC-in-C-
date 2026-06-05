@@ -54,11 +54,11 @@ Three workflows, one shared build block, three helper scripts:
 
 | Leg                | What runs                              | Required? |
 |--------------------|----------------------------------------|-----------|
-| `windows-latest`   | MSVC build of ConsoleSnake + compile **and run** `tests/Smoke.cpp` | ✓ |
-| `ubuntu-latest`    | mingw-w64 cross build of ConsoleSnake + compile `tests/Smoke.cpp`  | ✓ |
+| `windows-latest`   | MSVC build of ConsoleSnake + compile **and run** every suite in `tests/` | ✓ |
+| `ubuntu-latest`    | mingw-w64 cross build of ConsoleSnake + compile every suite in `tests/`  | ✓ |
 
-The smoke suite exercises the macro surface (DIM/SET/LET, IF/SELECT, the loop
-zoo, FUNCTION/SUB, conversions) and self-checks its results; the cross leg is
+The suites (`Smoke`, `Strings`, `Collections`, `Loops`) exercise the macro
+surface and self-check their results via `tests/TestKit.h`; the cross leg is
 compile-only because the host can't execute Win32 binaries.
 
 ## What it's for

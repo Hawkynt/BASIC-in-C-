@@ -54,14 +54,26 @@ jobs:
         run: x86_64-w64-mingw32-g++ -std=c++17 -Wall -static -o ConsoleSnake.exe ConsoleSnake/ConsoleSnake.cpp
 
       # This tier is REQUIRED -- do NOT add continue-on-error here.
-      - name: Test (MSVC) — compile and run the macro smoke suite
+      # (dash-style cl flags because MSYS bash mangles slash-style ones)
+      - name: Test (MSVC) — compile and run every suite in tests/
         if: runner.os == 'Windows'
+        shell: bash
         run: |
-          cl /nologo /EHsc /std:c++17 /W4 tests/Smoke.cpp /Fe:smoke.exe
-          .\smoke.exe
+          set -e
+          for f in tests/*.cpp; do
+            name=$(basename "$f" .cpp)
+            echo "=== $name ==="
+            cl -nologo -EHsc -std:c++17 -W4 "$f" -Fe:"$name.exe"
+            "./$name.exe"
+          done
 
       # Cross-built binaries can't run on the Linux host, so this leg is a
-      # compile-only check of the same suite (the windows leg executes it).
-      - name: Test (mingw-w64 cross) — compile the macro smoke suite
+      # compile-only check of the same suites (the windows leg executes them).
+      - name: Test (mingw-w64 cross) — compile every suite in tests/
         if: runner.os == 'Linux'
-        run: x86_64-w64-mingw32-g++ -std=c++17 -Wall -static -o smoke.exe tests/Smoke.cpp
+        run: |
+          set -e
+          for f in tests/*.cpp; do
+            echo "=== $f ==="
+            x86_64-w64-mingw32-g++ -std=c++17 -Wall -static -o "$(basename "$f" .cpp).exe" "$f"
+          done
