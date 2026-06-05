@@ -73,7 +73,16 @@ Except this time, it's **C++** wearing BASIC's skin.
 | `ENDIF`          | `ENDIF`                         |
 | `FOR i = 1 TO 5` | `FOR(i, 1, 5)`                  |
 | `NEXT`           | `NEXT`                          |
-| `DO LOOP`        | `DO ... LOOP` or `LOOP_FOREVER` |
+| `FOR EACH x IN xs` | `FOR_EACH(x IN xs)` (yes, a real `IN`) |
+| `DO WHILE c ... LOOP` | `DO_WHILE(c) ... LOOP`     |
+| `DO UNTIL c ... LOOP` | `DO_UNTIL(c) ... LOOP`     |
+| `DO ... LOOP WHILE c` | `DO ... LOOP_WHILE(c)`     |
+| `DO ... LOOP UNTIL c` | `DO ... LOOP_UNTIL(c)`     |
+| `EXIT DO / FOR`  | `EXIT_DO` / `EXIT_FOR` / `EXIT_WHILE` |
+| `ITERATE DO / FOR` | `ITERATE_DO` / `ITERATE_FOR`  |
+| `INCR x / DECR x` | `INCR(x)`, `INCR(x, 5)`, `DECR(x)` |
+| `SWAP a, b`      | `SWAP(a, b)`                    |
+| `x MOD y`        | `x MOD y` (a real `MOD` operator) |
 | `FUNCTION`       | `FUNCTION(name(...) AS TYPE)`   |
 | `RETURN`         | `RETURN(value)`                 |
 | `END`            | `END` (yes, no semicolon)       |
@@ -97,10 +106,53 @@ SINGLE  → float
 DOUBLE  → double  
 STRING  → std::string  
 BYTE    → unsigned char  
-BOOLEAN → bool
+BOOLEAN → bool  
+ASCIIZ  → char (use DIM_ARRAY(buf, 32 AS ASCIIZ) for PowerBASIC's zero-terminated buffers)
 ```
 
 Because `auto` is too fancy for 80s kids.
+
+### 🧵 Strings Like It's 1989
+
+The `$` is **part of the identifier** — MSVC and GCC both allow it, so `LEFT$`
+really is called `LEFT$`. Even your variables can be called `name$`. Positions
+are 1-based, out-of-range arguments clamp instead of crashing.
+
+| Function | Does |
+| -------- | ---- |
+| `LEFT$(s,n)` / `RIGHT$(s,n)` / `MID$(s,start[,len])` | The holy slicing trinity |
+| `INSTR([start,] hay, needle)` | 1-based find, `0` = not found |
+| `UCASE$(s)` / `LCASE$(s)` | SHOUTING and whispering |
+| `LTRIM$(s)` / `RTRIM$(s)` / `TRIM$(s)` | Space removal services |
+| `SPACE$(n)` / `STRING$(n, ch)` / `REPEAT$(n, s)` | Padding factories |
+| `CHR$(code)` / `ASC(s)` | Character ↔ code |
+| `STR$(x)` / `VAL(s)` | Number ↔ string (`STR$` keeps the classic sign slot: `" 42"`) |
+| `HEX$(x)` / `OCT$(x)` / `BIN$(x)` | Bases for nerds |
+| `TALLY(hay, needle)` | Count occurrences |
+
+### 📦 Collections (the anachronism aisle)
+
+No DOS-era BASIC had these. This one does, because we're already in too deep:
+
+```cpp
+DIM(scores AS LIST_OF(INTEGER))
+LIST_ADD(scores, 42)
+PRINT(LIST_ITEM(scores, 1))           // 1-based, of course
+
+DIM(ages AS DICTIONARY_OF(STRING, INTEGER))
+DICT_SET(ages, "BASIC", 61)
+IF(DICT_HAS(ages, "BASIC")) THEN
+  PRINT(DICT_ITEM(ages, "BASIC"))
+ENDIF
+
+FOR_EACH(score IN scores)
+  PRINT(score)
+NEXT
+```
+
+Lists: `LIST_ADD/INSERT/REMOVE/ITEM/COUNT/CLEAR/SORT/REVERSE/CONTAINS/INDEX_OF` (1-based).
+Dictionaries: `DICT_SET/ITEM/HAS/REMOVE/COUNT/CLEAR/KEYS/VALUES`.
+They even nest: `DICTIONARY_OF(STRING, LIST_OF(INTEGER))` survives the macro grinder.
 
 ---
 
@@ -168,10 +220,11 @@ msbuild ConsoleSnake/ConsoleSnake.sln /p:Configuration=Release /p:Platform=x64
 x86_64-w64-mingw32-g++ -std=c++17 -static -o ConsoleSnake.exe ConsoleSnake/ConsoleSnake.cpp
 ```
 
-CI builds both on every push, runs the macro smoke suite (`tests/Smoke.cpp`),
-publishes a `nightly-yyyyMMdd` prerelease on every green main build, and a
-manual dispatch of the Release workflow cuts a dated `vyyyyMMdd` release —
-binaries for both architectures plus the header itself.
+CI builds both on every push, compiles and runs every unit-test suite in
+`tests/` (smoke, strings, collections, loops — all written in the dialect
+itself), publishes a `nightly-yyyyMMdd` prerelease on every green main build,
+and a manual dispatch of the Release workflow cuts a dated `vyyyyMMdd`
+release — binaries for both architectures plus the header itself.
 
 ---
 
