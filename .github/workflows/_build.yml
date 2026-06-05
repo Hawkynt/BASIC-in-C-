@@ -1,0 +1,61 @@
+name: Build artifacts
+
+# Shared build/pack block. Called by release.yml (manual dispatch) and
+# nightly.yml (auto, on CI success). Single place that turns a commit into
+# shippable artifacts so release and nightly never diverge.
+#
+# Artifacts shipped: the ConsoleSnake demo game for both Windows architectures
+# plus BASIC.h itself — the header IS the product.
+#
+# `version.pl --stamp` runs for uniformity with the repo family; this repo has
+# no package manifests, so it leaves everything untouched.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref/SHA to build (defaults to caller ref)
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# Force JavaScript-based actions to run on Node 24 instead of the deprecated Node 20 ahead of
+# the 2026-06-16 hard cutover, until we bump each action to a Node-24-native major version.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0                           # version.pl counts commits
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Stamp per-package versions
+        shell: bash
+        run: perl .github/workflows/scripts/version.pl --stamp
+
+      - name: Build (Release, x64 + Win32)
+        run: |
+          msbuild ConsoleSnake/ConsoleSnake.sln /m /p:Configuration=Release /p:Platform=x64
+          msbuild ConsoleSnake/ConsoleSnake.sln /m /p:Configuration=Release /p:Platform=Win32
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp ConsoleSnake/bin/x64/Release/ConsoleSnake.exe   dist/ConsoleSnake-win-x64.exe
+          cp ConsoleSnake/bin/Win32/Release/ConsoleSnake.exe dist/ConsoleSnake-win-x86.exe
+          cp BASIC.h dist/BASIC.h
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-artifacts
+          path: dist/*
+          if-no-files-found: error
