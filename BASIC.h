@@ -33,6 +33,7 @@
 
 #define SET(x) x;
 #define LET(x) auto x;
+#undef CONST // windows.h defines a plain CONST; ours is function-like so winnt's usage stays untouched
 #define CONST(x) const constexpr auto x;
 
 // Logic & conditionals
