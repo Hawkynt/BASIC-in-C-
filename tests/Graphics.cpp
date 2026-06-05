@@ -21,7 +21,7 @@ FUNCTION(main() AS INTEGER)
   // ----- LINE -----------------------------------------------------------------------
   LINE(0, 5, 9, 5, 7)
   LET(allSet = TRUE)
-  FOR(x, 0, 9)
+  FOR(x, 0 TO 9)
     IF(POINT(x, 5) != 7) THEN
       SET(allSet = FALSE)
     ENDIF
@@ -90,11 +90,15 @@ FUNCTION(main() AS INTEGER)
   check(INSTR(frame, "\x1b[38;2;") > 0 AND INSTR(frame, "\x1b[48;2;") > 0, "frame uses 24-bit ANSI colours");
   check(LEN(frame) > 160 * 50 * 3, "frame covers every cell");
 
-  // ----- auto-fit: the frame scales down to the real terminal ---------------------------------------------------
-  PSET(0, 0, 15)                               // a white beacon in the top-left pixel
+  // ----- auto-fit: the frame scales down to the real terminal (box filter) --------------------------------------
+  LINE_BF(0, 0, 1, 1, 15)                      // a 2x2 white block: averages to pure white at half scale
   LET(scaled = __VGA_RENDER_INTO(80, 200))     // width-bound: 160x100 -> 80 cols, 25 rows
   check(TALLY(scaled, "\n") == 25, "render scales down uniformly to fit the width");
-  check(INSTR(scaled, "\x1b[38;2;255;255;255m") > 0, "scaled frame still samples the framebuffer");
+  check(INSTR(scaled, "\x1b[38;2;255;255;255m") > 0, "uniform regions stay their colour");
+  CLS()
+  PSET(0, 0, 15)                               // one lone white pixel in a 2x2 cell region...
+  LET(dimmed = __VGA_RENDER_INTO(80, 200))
+  check(INSTR(dimmed, "\x1b[38;2;255;255;255m") == 0 AND INSTR(dimmed, "\x1b[38;2;63;63;63m") > 0, "the box filter dims lone pixels (1 of 4) instead of dropping them");
   LET(tiny = __VGA_RENDER_INTO(16, 5))         // height and width agree at scale 0.1
   check(TALLY(tiny, "\n") == 5, "render scales down to tiny terminals");
   LET(unbounded = __VGA_RENDER_INTO(0, 0))
