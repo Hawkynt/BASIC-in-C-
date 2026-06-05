@@ -1,21 +1,10 @@
 // Smoke suite for the BASIC.h macro surface — written in the dialect itself,
 // because what better way to test crimes than committing more of them.
 //
-// Self-checking: every CHECK prints PASS/FAIL, the process exits non-zero if
+// Self-checking: every check prints PASS/FAIL, the process exits non-zero if
 // anything failed. No console-buffer tricks (LOCATE/COLOR) and no INPUT/INKEY
 // so it runs headless on CI with redirected stdout.
-#include "../BASIC.h"
-
-LET(failures = 0)
-
-SUB(check(BOOLEAN condition, STRING name))
-  IF(condition) THEN
-    PRINT("PASS: ", name)
-  ELSE
-    PRINT("FAIL: ", name)
-    SET(failures = failures + 1)
-  ENDIF
-END_SUB
+#include "TestKit.h"
 
 FUNCTION(add(INTEGER a, INTEGER b) AS INTEGER)
   RETURN(a + b);
@@ -75,7 +64,7 @@ FUNCTION(main() AS INTEGER)
   END_SELECT
   check(category == 20, "SELECT/CASE/CASE_ELSE");
 
-  // ----- the loop zoo -------------------------------------------------------
+  // ----- the loop zoo (basics; the full safari lives in Loops.cpp) ----------
   LET(sum = 0)
   FOR(i, 1, 5)
     SET(sum = sum + i)
@@ -108,26 +97,6 @@ FUNCTION(main() AS INTEGER)
   NEXT
   check(evens == 3, "BREAK/CONTINUE");
 
-  LET(n = 5)
-  LET(steps = 0)
-  WHILE(n > 0)
-    SET(n = n - 1)
-    SET(steps = steps + 1)
-  WEND
-  check(steps == 5, "WHILE/WEND");
-
-  LET(count = 0)
-  DO
-    SET(count = count + 1)
-  LOOP_UNTIL(count >= 3)
-  check(count == 3, "DO/LOOP_UNTIL");
-
-  LET(d = 0)
-  DO_WHILE(d < 4)
-    SET(d = d + 1)
-  LOOP
-  check(d == 4, "DO_WHILE/LOOP");
-
   // ----- GOTO / LABEL -------------------------------------------------------
   LET(reached = 0)
   GOTO(skip_here);
@@ -157,12 +126,5 @@ FUNCTION(main() AS INTEGER)
   check(TIMER() >= 0.0f, "TIMER");
   SLEEP(1)
 
-  // ----- verdict ------------------------------------------------------------
-  IF(failures == 0) THEN
-    PRINT("ALL TESTS PASSED")
-  ELSE
-    PRINT(failures, " TEST(S) FAILED")
-    RETURN(1);
-  ENDIF
-  END
+  END_OF_TESTS
 END_FUNCTION
