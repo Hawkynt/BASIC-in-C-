@@ -154,6 +154,80 @@ Lists: `LIST_ADD/INSERT/REMOVE/ITEM/COUNT/CLEAR/SORT/REVERSE/CONTAINS/INDEX_OF` 
 Dictionaries: `DICT_SET/ITEM/HAS/REMOVE/COUNT/CLEAR/KEYS/VALUES`.
 They even nest: `DICTIONARY_OF(STRING, LIST_OF(INTEGER))` survives the macro grinder.
 
+### 🖥️ SCREEN 13 In Your Terminal
+
+A real 256-colour VGA framebuffer with the classic DAC palette, rendered as
+ANSI 24-bit half-blocks — every character cell is two stacked pixels. Works in
+conhost, Windows Terminal, and over ssh. No SDL. No dependencies. No remorse.
+
+```cpp
+SCREEN(13)                       // 320x200x256, the one true mode
+PSET(160, 100, 4)                // a red pixel
+LINE(0, 0, 319, 199, 9)          // Bresenham, like everyone before us
+CIRCLE(160, 100, 50, 14)         // midpoint, eight octants at a time
+PAINT(160, 100, 6)               // bucket fill
+PALETTE(4, 63, 0, 0)             // real 6-bit DAC values
+FLIP()                           // blit the frame to the terminal
+```
+
+`SCREEN(7)` gives 160×100 for regular console windows, `GRAPHICS(w, h)` is
+yours to abuse, `SCREEN(0)` returns to text mode. `POINT(x, y)` reads pixels,
+`CLS()` wipes the framebuffer.
+
+### ☢️ PEEK / POKE / DEF SEG
+
+Sixty-four kilobytes of perfectly fake RAM — except segment `&HA000` (spelled
+`0xA000`, C++ has feelings too), which is **memory-mapped onto the live
+framebuffer** exactly like real mode 13h:
+
+```cpp
+SCREEN(13)
+DEF_SEG(0xA000)
+POKE(100 * 320 + 160, 12)        // yes, this draws a pixel. we're sorry. (no we're not)
+PRINT(PEEK(100 * 320 + 160))     // 12
+```
+
+### 🎵 SOUND & PLAY
+
+A real Music Macro Language parser, straight out of QBasic — `Beep()` reroutes
+to the sound card on modern Windows, no PC speaker required:
+
+```cpp
+PLAY("T180 O4 L8 E E P8 E P8 C E P8 G")   // you know exactly which game this is
+SOUND(440, 18.2)                          // one second of concert pitch
+```
+
+Notes `A`–`G` with `#`/`+`/`-`, octaves `O0`–`O6`/`>`/`<`, lengths `L`/dots,
+tempo `T`, rests `P`/`R`, note numbers `N1`–`N84` (`N37` = middle C),
+articulation `MN`/`ML`/`MS`.
+
+### 📼 DATA / READ / RESTORE
+
+```cpp
+DATA(10, 20, 30)
+DATA("WALL", "FLOOR", 3.5)
+
+DIM(x AS INTEGER)
+READ(x)                          // 10 — types convert themselves
+RESTORE                          // rewind the tape
+```
+
+### 📁 File Channels
+
+```cpp
+OPEN("scores.txt" FOR_OUTPUT AS 1)       // the same AS as everywhere else
+PRINT_FILE(1, "HIGHSCORE ", 9000)
+CLOSE_FILE(1)
+
+OPEN("scores.txt" FOR_INPUT AS 1)
+DIM(line AS STRING)
+LINE_INPUT_FILE(1, line)
+CLOSE_FILE(1)
+```
+
+Plus `INPUT_FILE` (comma-aware), `EOF_FILE(n)`, `FOR_APPEND`, `KILL`,
+`FILE_EXISTS`. Channel numbers are yours to manage, exactly like 1989.
+
 ---
 
 ## 🧪 Math & Conversion

@@ -6,7 +6,10 @@
 #include <cstdlib>   // RND, RANDOMIZE_TIMER, RUN, VAL
 #include <ctime>     // TIMER, RANDOMIZE_TIMER
 #include <cctype>    // UCASE$, LCASE$
+#include <cmath>     // PLAY (note frequencies)
+#include <cstdio>    // FLIP (frame assembly), KILL
 #include <sstream>   // STR$, HEX$, OCT$
+#include <fstream>   // OPEN/PRINT_FILE/LINE_INPUT_FILE/...
 #include <utility>   // SWAP
 #include <vector>    // LIST_OF
 #include <map>       // DICTIONARY_OF
@@ -332,6 +335,243 @@ LIST_OF(typename TDict::mapped_type) DICT_VALUES(const TDict & dict) {
   return values;
 }
 
+// ===========================================================================
+// VGA in your terminal. SCREEN(13) allocates a real 256-colour framebuffer
+// with the classic VGA DAC palette; FLIP() renders it as ANSI 24-bit
+// half-blocks (one character cell = two stacked pixels). Works in any modern
+// terminal - conhost, Windows Terminal, anything over ssh. Mode 13h forever.
+// ===========================================================================
+inline std::vector<BYTE> __vga_framebuffer;
+inline int __vga_width = 0;
+inline int __vga_height = 0;
+inline unsigned char __vga_palette[256][3]; // 6-bit DAC values, like mother nature intended
+
+inline void __VGA_DEFAULT_PALETTE() {
+  // 0-15: the EGA sixteen
+  static const unsigned char ega[16][3] = {
+    {0,0,0},{0,0,42},{0,42,0},{0,42,42},{42,0,0},{42,0,42},{42,21,0},{42,42,42},
+    {21,21,21},{21,21,63},{21,63,21},{21,63,63},{63,21,21},{63,21,63},{63,63,21},{63,63,63}
+  };
+  // 16-31: the gray ramp
+  static const unsigned char grays[16] = {0,5,8,11,14,17,20,24,28,32,36,40,45,50,56,63};
+  for (auto i = 0; i < 16; ++i)
+    for (auto channel = 0; channel < 3; ++channel)
+      __vga_palette[i][channel] = ega[i][channel];
+  for (auto i = 0; i < 16; ++i)
+    __vga_palette[16 + i][0] = __vga_palette[16 + i][1] = __vga_palette[16 + i][2] = grays[i];
+  // 32-247: 3 brightness blocks x 3 saturation rings x 24-step hue wheel,
+  // blue -> magenta -> red -> yellow -> green -> cyan -> blue (close
+  // approximation of the factory DAC values)
+  static const unsigned char top[3] = {63, 45, 28};
+  auto index = 32;
+  for (auto brightness = 0; brightness < 3; ++brightness) {
+    const int hi = top[brightness];
+    const int los[3] = {0, hi / 2, hi * 3 / 4};
+    for (auto saturation = 0; saturation < 3; ++saturation) {
+      const auto lo = los[saturation];
+      for (auto step = 0; step < 24; ++step) {
+        const auto segment = step / 4;
+        const auto rise = lo + (hi - lo) * (step % 4) / 4;
+        const auto fall = hi - (hi - lo) * (step % 4) / 4;
+        auto r = lo, g = lo, b = lo;
+        switch (segment) {
+          case 0: b = hi; r = rise; break; // blue -> magenta
+          case 1: r = hi; b = fall; break; // magenta -> red
+          case 2: r = hi; g = rise; break; // red -> yellow
+          case 3: g = hi; r = fall; break; // yellow -> green
+          case 4: g = hi; b = rise; break; // green -> cyan
+          case 5: b = hi; g = fall; break; // cyan -> blue
+        }
+        __vga_palette[index][0] = static_cast<unsigned char>(r);
+        __vga_palette[index][1] = static_cast<unsigned char>(g);
+        __vga_palette[index][2] = static_cast<unsigned char>(b);
+        ++index;
+      }
+    }
+  }
+  for (; index < 256; ++index) // 248-255: black, as the factory shipped it
+    __vga_palette[index][0] = __vga_palette[index][1] = __vga_palette[index][2] = 0;
+}
+
+inline void __GRAPHICS_IMPL(int width, int height) {
+  __vga_width = width;
+  __vga_height = height;
+  __vga_framebuffer.assign(width > 0 ? static_cast<size_t>(width) * height : 0, 0);
+  __VGA_DEFAULT_PALETTE();
+  if (width <= 0) return;
+  // best effort: VT processing + UTF-8 + hidden cursor (fails harmlessly when piped)
+  const HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+  DWORD mode = 0;
+  if (GetConsoleMode(handle, &mode))
+    SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+  SetConsoleOutputCP(CP_UTF8);
+  std::cout << "\x1b[2J\x1b[?25l" << std::flush;
+}
+
+inline void __SCREEN_IMPL(int mode) {
+  switch (mode) {
+    case 13: __GRAPHICS_IMPL(320, 200); break;  // the one true mode
+    case 7:  __GRAPHICS_IMPL(160, 100); break;  // fits a regular console window
+    default: __GRAPHICS_IMPL(0, 0); std::cout << "\x1b[?25h" << std::flush; break; // SCREEN(0): back to text
+  }
+}
+
+#define SCREEN(mode) __SCREEN_IMPL(mode);
+#define GRAPHICS(width, height) __GRAPHICS_IMPL(width, height);
+#define SCREEN_WIDTH() (__vga_width)
+#define SCREEN_HEIGHT() (__vga_height)
+
+inline void __PSET_IMPL(int x, int y, int color) {
+  if (x < 0 || y < 0 || x >= __vga_width || y >= __vga_height) return;
+  __vga_framebuffer[static_cast<size_t>(y) * __vga_width + x] = static_cast<BYTE>(color & 0xFF);
+}
+
+inline int __POINT_IMPL(int x, int y) {
+  if (x < 0 || y < 0 || x >= __vga_width || y >= __vga_height) return -1;
+  return __vga_framebuffer[static_cast<size_t>(y) * __vga_width + x];
+}
+
+#define PSET(x, y, color) __PSET_IMPL(x, y, color);
+#define POINT(x, y) __POINT_IMPL(x, y)
+
+inline void __PALETTE_IMPL(int index, int r, int g, int b) {
+  if (index < 0 || index > 255) return;
+  const auto clamp = [](int value) { return static_cast<unsigned char>(value < 0 ? 0 : value > 63 ? 63 : value); };
+  __vga_palette[index][0] = clamp(r);
+  __vga_palette[index][1] = clamp(g);
+  __vga_palette[index][2] = clamp(b);
+}
+#define PALETTE(index, r, g, b) __PALETTE_IMPL(index, r, g, b);
+
+inline void __LINE_IMPL(int x1, int y1, int x2, int y2, int color) {
+  // Bresenham, like everyone before us
+  const auto dx = std::abs(x2 - x1), sx = x1 < x2 ? 1 : -1;
+  const auto dy = -std::abs(y2 - y1), sy = y1 < y2 ? 1 : -1;
+  auto err = dx + dy;
+  for (;;) {
+    __PSET_IMPL(x1, y1, color);
+    if (x1 == x2 && y1 == y2) break;
+    const auto doubled = 2 * err;
+    if (doubled >= dy) { err += dy; x1 += sx; }
+    if (doubled <= dx) { err += dx; y1 += sy; }
+  }
+}
+
+inline void __LINE_BOX_IMPL(int x1, int y1, int x2, int y2, int color, bool filled) {
+  if (x1 > x2) std::swap(x1, x2);
+  if (y1 > y2) std::swap(y1, y2);
+  for (auto y = y1; y <= y2; ++y)
+    for (auto x = x1; x <= x2; ++x)
+      if (filled || x == x1 || x == x2 || y == y1 || y == y2)
+        __PSET_IMPL(x, y, color);
+}
+
+#define LINE(x1, y1, x2, y2, color) __LINE_IMPL(x1, y1, x2, y2, color);
+#define LINE_B(x1, y1, x2, y2, color) __LINE_BOX_IMPL(x1, y1, x2, y2, color, false);
+#define LINE_BF(x1, y1, x2, y2, color) __LINE_BOX_IMPL(x1, y1, x2, y2, color, true);
+
+inline void __CIRCLE_IMPL(int cx, int cy, int radius, int color) {
+  // midpoint circle, eight octants at a time
+  if (radius < 0) return;
+  auto x = radius, y = 0, err = 1 - radius;
+  while (x >= y) {
+    __PSET_IMPL(cx + x, cy + y, color); __PSET_IMPL(cx - x, cy + y, color);
+    __PSET_IMPL(cx + x, cy - y, color); __PSET_IMPL(cx - x, cy - y, color);
+    __PSET_IMPL(cx + y, cy + x, color); __PSET_IMPL(cx - y, cy + x, color);
+    __PSET_IMPL(cx + y, cy - x, color); __PSET_IMPL(cx - y, cy - x, color);
+    ++y;
+    if (err < 0) err += 2 * y + 1;
+    else { --x; err += 2 * (y - x) + 1; }
+  }
+}
+#define CIRCLE(x, y, radius, color) __CIRCLE_IMPL(x, y, radius, color);
+
+inline void __PAINT_IMPL(int x, int y, int color) {
+  // bucket fill of the uniformly-coloured area under the cursor
+  const auto target = __POINT_IMPL(x, y);
+  if (target < 0 || target == color) return;
+  std::vector<std::pair<int, int>> stack{{x, y}};
+  while (!stack.empty()) {
+    const auto [px, py] = stack.back();
+    stack.pop_back();
+    if (__POINT_IMPL(px, py) != target) continue;
+    __PSET_IMPL(px, py, color);
+    stack.push_back({px + 1, py});
+    stack.push_back({px - 1, py});
+    stack.push_back({px, py + 1});
+    stack.push_back({px, py - 1});
+  }
+}
+#define PAINT(x, y, color) __PAINT_IMPL(x, y, color);
+
+// assembles the ANSI frame: ESC[H, then per cell one upper-half-block whose
+// foreground is the top pixel and background the bottom pixel
+inline STRING __VGA_RENDER() {
+  STRING frame;
+  if (__vga_width <= 0) return frame;
+  frame.reserve(static_cast<size_t>(__vga_width) * __vga_height * 8);
+  frame += "\x1b[H";
+  char code[32];
+  for (auto y = 0; y < __vga_height; y += 2) {
+    auto lastTop = -1, lastBottom = -1;
+    for (auto x = 0; x < __vga_width; ++x) {
+      const int topPixel = __vga_framebuffer[static_cast<size_t>(y) * __vga_width + x];
+      const int bottomPixel = y + 1 < __vga_height ? __vga_framebuffer[static_cast<size_t>(y + 1) * __vga_width + x] : 0;
+      if (topPixel != lastTop) {
+        std::snprintf(code, sizeof(code), "\x1b[38;2;%d;%d;%dm", __vga_palette[topPixel][0] * 255 / 63, __vga_palette[topPixel][1] * 255 / 63, __vga_palette[topPixel][2] * 255 / 63);
+        frame += code;
+        lastTop = topPixel;
+      }
+      if (bottomPixel != lastBottom) {
+        std::snprintf(code, sizeof(code), "\x1b[48;2;%d;%d;%dm", __vga_palette[bottomPixel][0] * 255 / 63, __vga_palette[bottomPixel][1] * 255 / 63, __vga_palette[bottomPixel][2] * 255 / 63);
+        frame += code;
+        lastBottom = bottomPixel;
+      }
+      frame += "\xE2\x96\x80"; // the mighty upper half block
+    }
+    frame += "\x1b[0m\n";
+  }
+  return frame;
+}
+
+inline void __FLIP_IMPL() {
+  const auto frame = __VGA_RENDER();
+  std::cout.write(frame.data(), static_cast<std::streamsize>(frame.size()));
+  std::cout.flush();
+}
+#define FLIP() __FLIP_IMPL();
+
+// ===========================================================================
+// PEEK / POKE / DEF SEG. Sixty-four kilobytes of perfectly fake RAM - except
+// segment &HA000 (spelled 0xA000, C++ has feelings too), which is memory-
+// mapped onto the live framebuffer exactly like the real mode 13h. Yes,
+// POKE(y * 320 + x, colour) draws a pixel. You're welcome and we're sorry.
+// ===========================================================================
+inline unsigned __basic_segment = 0;
+inline std::vector<BYTE> __basic_memory; // lazily allocated 64KB of nostalgia
+
+#define DEF_SEG(segment) __basic_segment = (segment);
+
+inline int __PEEK_IMPL(unsigned offset) {
+  if (__basic_segment == 0xA000)
+    return offset < __vga_framebuffer.size() ? __vga_framebuffer[offset] : 0;
+  if (__basic_memory.empty()) __basic_memory.assign(65536, 0);
+  return __basic_memory[offset & 0xFFFF];
+}
+
+inline void __POKE_IMPL(unsigned offset, int value) {
+  if (__basic_segment == 0xA000) {
+    if (offset < __vga_framebuffer.size())
+      __vga_framebuffer[offset] = static_cast<BYTE>(value & 0xFF);
+    return;
+  }
+  if (__basic_memory.empty()) __basic_memory.assign(65536, 0);
+  __basic_memory[offset & 0xFFFF] = static_cast<BYTE>(value & 0xFF);
+}
+
+#define PEEK(offset) __PEEK_IMPL(offset)
+#define POKE(offset, value) __POKE_IMPL(offset, value);
+
 // I/O
 #define SLEEP(ms) Sleep(ms);
 #define RND() (static_cast<float>(rand()) / static_cast<float>(RAND_MAX))
@@ -346,6 +586,9 @@ void __PRINT_IMPL(Args&&... args) {
 #define PRINT(...) do { __PRINT_IMPL(__VA_ARGS__); } while(0);
 
 inline void __CLS_IMPL() {
+  if (__vga_width > 0) // graphics mode: CLS wipes the framebuffer
+    std::fill(__vga_framebuffer.begin(), __vga_framebuffer.end(), static_cast<BYTE>(0));
+
   const HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
   CONSOLE_SCREEN_BUFFER_INFO csbi;
   DWORD count;
@@ -366,4 +609,211 @@ inline void __CLS_IMPL() {
 #define INKEY() (_kbhit() ? _getch() : 0)
 
 #define RUN(cmd) std::system(cmd);
+
+// ===========================================================================
+// SOUND and PLAY. SOUND(frequency, ticks) like QB (18.2 ticks per second),
+// PLAY("T120 O4 L8 CDEFGAB") with a real Music Macro Language parser:
+// notes A-G with #/+/- accidentals, O/</> octaves, L lengths, dots, T tempo,
+// P/R rests, N note numbers (N37 = middle C), MN/ML/MS articulation.
+// Beep() reroutes to the sound card on modern Windows - no PC speaker needed.
+// ===========================================================================
+struct __MML_NOTE {
+  double frequency;          // Hz, 0 = rest
+  double totalMilliseconds;  // note slot duration
+  double soundMilliseconds;  // audible part (articulation)
+};
+
+inline int __MML_NUMBER(const STRING & tune, size_t & i) { // digits at i, -1 if none
+  if (i >= tune.length() || !std::isdigit(static_cast<unsigned char>(tune[i]))) return -1;
+  auto value = 0;
+  while (i < tune.length() && std::isdigit(static_cast<unsigned char>(tune[i])))
+    value = value * 10 + (tune[i++] - '0');
+  return value;
+}
+
+inline std::vector<__MML_NOTE> __MML_PARSE(const STRING & tune) {
+  std::vector<__MML_NOTE> notes;
+  auto octave = 4;              // QB default; octave 3 holds middle C
+  auto defaultLength = 4;
+  auto tempo = 120.0;
+  auto articulation = 7.0 / 8.0; // MN: 7/8 sound, 1/8 silence
+  static const int semitoneOf[7] = {9, 11, 0, 2, 4, 5, 7}; // A..G
+
+  const auto emit = [&](double frequency, int length, int dots) {
+    auto milliseconds = (60000.0 / tempo) * 4.0 / length;
+    auto extension = milliseconds / 2;
+    for (auto dot = 0; dot < dots; ++dot, extension /= 2)
+      milliseconds += extension;
+    notes.push_back({frequency, milliseconds, milliseconds * articulation});
+  };
+  const auto frequencyOfMidi = [](int midi) { return 440.0 * std::pow(2.0, (midi - 69) / 12.0); };
+
+  for (size_t i = 0; i < tune.length();) {
+    const auto command = std::toupper(static_cast<unsigned char>(tune[i]));
+    ++i;
+    if (command >= 'A' && command <= 'G') {
+      auto semitone = semitoneOf[command - 'A'];
+      while (i < tune.length() && (tune[i] == '#' || tune[i] == '+' || tune[i] == '-')) {
+        semitone += tune[i] == '-' ? -1 : +1;
+        ++i;
+      }
+      auto length = __MML_NUMBER(tune, i);
+      if (length < 1) length = defaultLength;
+      auto dots = 0;
+      while (i < tune.length() && tune[i] == '.') { ++dots; ++i; }
+      emit(frequencyOfMidi((octave + 2) * 12 + semitone), length, dots);
+      continue;
+    }
+    switch (command) {
+      case 'O': { const auto o = __MML_NUMBER(tune, i); if (o >= 0) octave = o > 6 ? 6 : o; break; }
+      case '>': if (octave < 6) ++octave; break;
+      case '<': if (octave > 0) --octave; break;
+      case 'L': { const auto l = __MML_NUMBER(tune, i); if (l >= 1) defaultLength = l; break; }
+      case 'T': { const auto t = __MML_NUMBER(tune, i); if (t >= 32 && t <= 255) tempo = t; break; }
+      case 'P': case 'R': {
+        auto length = __MML_NUMBER(tune, i);
+        if (length < 1) length = defaultLength;
+        auto dots = 0;
+        while (i < tune.length() && tune[i] == '.') { ++dots; ++i; }
+        emit(0, length, dots);
+        break;
+      }
+      case 'N': {
+        const auto n = __MML_NUMBER(tune, i);
+        if (n == 0) emit(0, defaultLength, 0);
+        else if (n >= 1 && n <= 84) emit(frequencyOfMidi(n + 23), defaultLength, 0);
+        break;
+      }
+      case 'M':
+        if (i < tune.length()) {
+          const auto style = std::toupper(static_cast<unsigned char>(tune[i]));
+          ++i;
+          if (style == 'N') articulation = 7.0 / 8.0;
+          else if (style == 'L') articulation = 1.0;
+          else if (style == 'S') articulation = 3.0 / 4.0;
+          // MB/MF: everything here is foreground music anyway
+        }
+        break;
+      default: break; // spaces and anything exotic: graciously ignored
+    }
+  }
+  return notes;
+}
+
+inline void __SOUND_IMPL(double frequency, double ticks) {
+  const auto milliseconds = static_cast<DWORD>(ticks * 1000.0 / 18.2);
+  if (frequency < 37 || frequency > 32767) { Sleep(milliseconds); return; }
+  Beep(static_cast<DWORD>(frequency), milliseconds);
+}
+
+inline void __PLAY_IMPL(const STRING & tune) {
+  for (const auto & note : __MML_PARSE(tune)) {
+    if (note.frequency < 37) { Sleep(static_cast<DWORD>(note.totalMilliseconds)); continue; }
+    Beep(static_cast<DWORD>(note.frequency), static_cast<DWORD>(note.soundMilliseconds));
+    const auto gap = note.totalMilliseconds - note.soundMilliseconds;
+    if (gap >= 1) Sleep(static_cast<DWORD>(gap));
+  }
+}
+
+#define SOUND(frequency, ticks) __SOUND_IMPL(frequency, ticks);
+#define PLAY(tune) __PLAY_IMPL(tune);
+
+// ===========================================================================
+// DATA / READ / RESTORE. DATA(...) at file scope queues values in source
+// order; READ(var) pops the next one converted to var's type; RESTORE
+// rewinds. Reading past the end yields zero/empty (mercy, not "Out of DATA").
+// ===========================================================================
+inline std::vector<STRING> __data_store;
+inline size_t __data_cursor = 0;
+
+template<typename T>
+STRING __DATA_STRINGIFY(const T & value) {
+  std::ostringstream stream;
+  stream << value;
+  return stream.str();
+}
+
+template<typename... TValues>
+bool __DATA_ADD(TValues&&... values) {
+  (__data_store.push_back(__DATA_STRINGIFY(values)), ...);
+  return true;
+}
+
+template<typename T>
+void __READ_IMPL(T & target) {
+  if (__data_cursor >= __data_store.size()) { target = T(); return; }
+  std::istringstream stream(__data_store[__data_cursor++]);
+  stream >> target;
+}
+
+inline void __READ_IMPL(STRING & target) {
+  target = __data_cursor < __data_store.size() ? __data_store[__data_cursor++] : "";
+}
+
+#define DATA(...) [[maybe_unused]] static const bool UNIQUE(__data_line) = __DATA_ADD(__VA_ARGS__);
+#define READ(var) __READ_IMPL(var);
+#define RESTORE __data_cursor = 0;
+#define DATA_REMAINING() static_cast<int>(__data_store.size() - __data_cursor)
+
+// ===========================================================================
+// File I/O channels: OPEN("file" FOR_OUTPUT AS 1), PRINT_FILE(1, ...),
+// LINE_INPUT_FILE(1, s), INPUT_FILE(1, x), EOF_FILE(1), CLOSE_FILE(1),
+// KILL("file"). The AS is the same AS as everywhere else. Channel numbers
+// are yours to manage, exactly like 1989.
+// ===========================================================================
+inline std::map<int, std::fstream> __file_channels;
+
+#define FOR_INPUT  , (std::ios::in)
+#define FOR_OUTPUT , (std::ios::out | std::ios::trunc)
+#define FOR_APPEND , (std::ios::out | std::ios::app)
+
+inline void __OPEN_IMPL(const STRING & filename, std::ios::openmode mode, int channel) {
+  auto & file = __file_channels[channel];
+  if (file.is_open()) file.close();
+  file.clear();
+  file.open(filename, mode);
+}
+#define OPEN(...) EXPAND(__OPEN_IMPL(__VA_ARGS__));
+
+template<typename... TValues>
+void __PRINT_FILE_IMPL(int channel, TValues&&... values) {
+  (__file_channels[channel] << ... << values) << '\n';
+}
+#define PRINT_FILE(...) __PRINT_FILE_IMPL(__VA_ARGS__);
+
+template<typename T>
+void __INPUT_FILE_IMPL(int channel, T & target) {
+  auto & file = __file_channels[channel];
+  file >> target;
+  // swallow the delimiter after the item: spaces, one comma, or the line break
+  while (file.peek() == ' ' || file.peek() == '\t') file.get();
+  if (file.peek() == ',') file.get();
+  else {
+    if (file.peek() == '\r') file.get();
+    if (file.peek() == '\n') file.get();
+  }
+}
+#define INPUT_FILE(channel, var) __INPUT_FILE_IMPL(channel, var);
+
+inline void __LINE_INPUT_FILE_IMPL(int channel, STRING & target) {
+  std::getline(__file_channels[channel], target);
+  if (!target.empty() && target.back() == '\r') target.pop_back();
+}
+#define LINE_INPUT_FILE(channel, var) __LINE_INPUT_FILE_IMPL(channel, var);
+
+#define EOF_FILE(channel) (__file_channels[channel].peek() == std::char_traits<char>::eof())
+
+inline void __CLOSE_FILE_IMPL(int channel) {
+  const auto found = __file_channels.find(channel);
+  if (found == __file_channels.end()) return;
+  found->second.close();
+  __file_channels.erase(found);
+}
+#define CLOSE_FILE(channel) __CLOSE_FILE_IMPL(channel);
+
+#define KILL(filename) std::remove(STRING(filename).c_str());
+
+inline BOOLEAN FILE_EXISTS(const STRING & filename) {
+  return std::ifstream(filename).good();
+}
 
