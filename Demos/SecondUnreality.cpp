@@ -3,9 +3,11 @@
 // Second Reality, the Kukoo2 Pleasure Access BBS intro, and every copper bar
 // that ever crawled across a CRT while the modem negotiated.
 //
-// Ten parts: copper bars, plasma, fire, starfield, a wireframe cube,
-// bouncing sprites, fireworks, a Timeless-style tunnel over a hidden
-// feedback backbuffer, shadebobs and a truecolor rotozoom.
+// Eleven parts: copper bars, plasma, fire, starfield, a wireframe cube,
+// bouncing sprites, fireworks, scrolltext marquees in all four directions
+// (font ROM in DATA, like a proper type-in listing), a Timeless-style
+// tunnel over a hidden feedback backbuffer, shadebobs and a truecolor
+// rotozoom.
 // Everything runs on BASIC.h's fake VGA: palette animation goes through
 // OUT 3C8/3C9 like a demo coder would, frames sync on the (fake but
 // punctual) vertical retrace at INP(3DA), the cube reads its edge list
@@ -23,6 +25,80 @@
 DATA(0, 1, 1, 3, 3, 2, 2, 0)                    // cube edges: bottom face,
 DATA(4, 5, 5, 7, 7, 6, 6, 4)                    // top face,
 DATA(0, 4, 1, 5, 2, 6, 3, 7)                    // and the pillars
+
+// The font ROM: 29 glyphs (A-Z, space, !, .), five rows of five each,
+// lovingly typed in like a 1987 listing. Read by the marquee part.
+DATA(".###.", "#...#", "#####", "#...#", "#...#")  // A
+DATA("####.", "#...#", "####.", "#...#", "####.")  // B
+DATA(".####", "#....", "#....", "#....", ".####")  // C
+DATA("####.", "#...#", "#...#", "#...#", "####.")  // D
+DATA("#####", "#....", "####.", "#....", "#####")  // E
+DATA("#####", "#....", "####.", "#....", "#....")  // F
+DATA(".####", "#....", "#.###", "#...#", ".###.")  // G
+DATA("#...#", "#...#", "#####", "#...#", "#...#")  // H
+DATA("#####", "..#..", "..#..", "..#..", "#####")  // I
+DATA("..###", "...#.", "...#.", "#..#.", ".##..")  // J
+DATA("#...#", "#..#.", "###..", "#..#.", "#...#")  // K
+DATA("#....", "#....", "#....", "#....", "#####")  // L
+DATA("#...#", "##.##", "#.#.#", "#...#", "#...#")  // M
+DATA("#...#", "##..#", "#.#.#", "#..##", "#...#")  // N
+DATA(".###.", "#...#", "#...#", "#...#", ".###.")  // O
+DATA("####.", "#...#", "####.", "#....", "#....")  // P
+DATA(".###.", "#...#", "#.#.#", "#..#.", ".##.#")  // Q
+DATA("####.", "#...#", "####.", "#..#.", "#...#")  // R
+DATA(".####", "#....", ".###.", "....#", "####.")  // S
+DATA("#####", "..#..", "..#..", "..#..", "..#..")  // T
+DATA("#...#", "#...#", "#...#", "#...#", ".###.")  // U
+DATA("#...#", "#...#", "#...#", ".#.#.", "..#..")  // V
+DATA("#...#", "#...#", "#.#.#", "##.##", "#...#")  // W
+DATA("#...#", ".#.#.", "..#..", ".#.#.", "#...#")  // X
+DATA("#...#", ".#.#.", "..#..", "..#..", "..#..")  // Y
+DATA("#####", "...#.", "..#..", ".#...", "#####")  // Z
+DATA(".....", ".....", ".....", ".....", ".....")  // space
+DATA("..#..", "..#..", "..#..", ".....", "..#..")  // !
+DATA(".....", ".....", ".....", ".....", "..#..")  // .
+
+DIM_ARRAY(g_fontRow, 145 AS STRING)             // 29 glyphs x 5 rows, filled by loadFont
+LET(g_fontLoaded = FALSE)
+
+SUB(loadFont())
+  IF(g_fontLoaded) THEN
+    EXIT_SUB
+  ENDIF
+  RESTORE
+  DIM(dummy AS INTEGER)
+  FOR(skip, 1 TO 24)                            // hop over the cube edges
+    READ(dummy)
+  NEXT
+  FOR(i, 0 TO 144)
+    READ(g_fontRow[i])
+  NEXT
+  SET(g_fontLoaded = TRUE)
+END_SUB
+
+FUNCTION(glyphOf(INTEGER code) AS INTEGER)
+  IF(code >= 'A' AND code <= 'Z') THEN
+    RETURN(code - 'A');
+  ENDIF
+  IF(code == '!') THEN
+    RETURN(27);
+  ENDIF
+  IF(code == '.') THEN
+    RETURN(28);
+  ENDIF
+  RETURN(26);
+END_FUNCTION
+
+SUB(drawGlyph(INTEGER glyph, INTEGER x, INTEGER y, INTEGER colour, INTEGER pixelSize))
+  FOR(row, 0 TO 4)
+    LET(bits = g_fontRow[glyph * 5 + row])
+    FOR(column, 0 TO 4)
+      IF(MID$(bits, column + 1, 1) == "#") THEN
+        LINE_BF(x + column * pixelSize, y + row * pixelSize, x + column * pixelSize + pixelSize - 1, y + row * pixelSize + pixelSize - 1, colour)
+      ENDIF
+    NEXT
+  NEXT
+END_SUB
 
 SUB(waitFrame())
   // the classic two-step: leave the current retrace, then catch the next one
@@ -45,19 +121,19 @@ END_FUNCTION
 // The screen is painted ONCE; after that only the DAC moves. Pure 3C8/3C9.
 FUNCTION(copperBars() AS INTEGER)
   SCREEN(13)
-  FOR(y, 0, 199)
+  FOR(y, 0 TO 199)
     LINE(0, y, 319, y, 32 + y)                  // one palette entry per scanline
   NEXT
-  FOR(frame, 1, 200)
+  FOR(frame, 1 TO 200)
     OUT(0x3C8, 32)
-    FOR(row, 0, 199)
+    FOR(row, 0 TO 199)
       DIM(r AS DOUBLE)
       DIM(g AS DOUBLE)
       DIM(b AS DOUBLE)
       SET(r = 0)
       SET(g = 0)
       SET(b = 0)
-      FOR(bar, 0, 2)
+      FOR(bar, 0 TO 2)
         LET(center = 100.0 + 85.0 * SIN(frame * 0.06 + bar * 2.1))
         LET(distance = row - center)
         LET(glow = 63.0 - distance * distance / 4.0)
@@ -92,15 +168,15 @@ END_FUNCTION
 FUNCTION(plasma() AS INTEGER)
   SCREEN(13)
   OUT(0x3C8, 0)
-  FOR(i, 0, 255)
+  FOR(i, 0 TO 255)
     OUT(0x3C9, CINT(31.5 + 31.5 * SIN(i * PI / 32.0)))
     OUT(0x3C9, CINT(31.5 + 31.5 * SIN(i * PI / 32.0 + 2.1)))
     OUT(0x3C9, CINT(31.5 + 31.5 * SIN(i * PI / 32.0 + 4.2)))
   NEXT
-  FOR(frame, 1, 200)
+  FOR(frame, 1 TO 200)
     LET(t = frame * 0.1)
-    FOR(y, 0, 199)
-      FOR(x, 0, 319)
+    FOR(y, 0 TO 199)
+      FOR(x, 0 TO 319)
         LET(v = SIN(x * 0.06 + t) + SIN(y * 0.09 - t) + SIN((x + y) * 0.05 + t * 0.7))
         PSET(x, y, CINT(127.5 + 42.0 * v))
       NEXT
@@ -120,21 +196,21 @@ END_FUNCTION
 FUNCTION(fire() AS INTEGER)
   SCREEN(13)
   OUT(0x3C8, 0)                                 // black -> red -> yellow -> white
-  FOR(i, 0, 255)
+  FOR(i, 0 TO 255)
     OUT(0x3C9, clamp63(i))
     OUT(0x3C9, clamp63(i - 85))
     OUT(0x3C9, clamp63(i - 170))
   NEXT
-  FOR(frame, 1, 220)
-    FOR(x, 0, 319)                              // stoke the coals
+  FOR(frame, 1 TO 220)
+    FOR(x, 0 TO 319)                              // stoke the coals
       IF(RND() > 0.5f) THEN
         PSET(x, 199, 255)
       ELSE
         PSET(x, 199, 0)
       ENDIF
     NEXT
-    FOR(y, 60, 198)                             // heat rises and cools
-      FOR(x, 1, 318)
+    FOR(y, 60 TO 198)                             // heat rises and cools
+      FOR(x, 1 TO 318)
         LET(deeper = POINT(x, y + 2))
         IF(deeper < 0) THEN
           SET(deeper = 0)
@@ -161,14 +237,14 @@ FUNCTION(starfield() AS INTEGER)
   DIM_ARRAY(sx, STARS AS SINGLE)
   DIM_ARRAY(sy, STARS AS SINGLE)
   DIM_ARRAY(sz, STARS AS SINGLE)
-  FOR(i, 0, STARS - 1)
+  FOR(i, 0 TO STARS - 1)
     SET(sx[i] = (RND() - 0.5f) * 320.0f)
     SET(sy[i] = (RND() - 0.5f) * 200.0f)
     SET(sz[i] = 1.0f + RND() * 255.0f)
   NEXT
-  FOR(frame, 1, 260)
+  FOR(frame, 1 TO 260)
     CLS()
-    FOR(i, 0, STARS - 1)
+    FOR(i, 0 TO STARS - 1)
       SET(sz[i] = sz[i] - 2.5f)
       LET(visible = FALSE)
       IF(sz[i] >= 1.0f) THEN
@@ -209,24 +285,24 @@ FUNCTION(cube3d() AS INTEGER)
   DIM_ARRAY(edgeA, 12 AS INTEGER)
   DIM_ARRAY(edgeB, 12 AS INTEGER)
   RESTORE
-  FOR(e, 0, 11)
+  FOR(e, 0 TO 11)
     READ(edgeA[e])
     READ(edgeB[e])
   NEXT
   DIM_ARRAY(vertX, 8 AS INTEGER)
   DIM_ARRAY(vertY, 8 AS INTEGER)
   DIM_ARRAY(vertZ, 8 AS INTEGER)
-  FOR(v, 0, 7)                                  // corners from the bit fairy
+  FOR(v, 0 TO 7)                                  // corners from the bit fairy
     SET(vertX[v] = ((v & 1) * 2 - 1) * 40)
     SET(vertY[v] = (((v >> 1) & 1) * 2 - 1) * 40)
     SET(vertZ[v] = (((v >> 2) & 1) * 2 - 1) * 40)
   NEXT
-  FOR(frame, 1, 240)
+  FOR(frame, 1 TO 240)
     LET(a = frame * 0.035)
     LET(b = frame * 0.021)
     DIM_ARRAY(px, 8 AS INTEGER)
     DIM_ARRAY(py, 8 AS INTEGER)
-    FOR(v, 0, 7)
+    FOR(v, 0 TO 7)
       LET(x1 = vertX[v] * COS(a) - vertZ[v] * SIN(a))
       LET(z1 = vertX[v] * SIN(a) + vertZ[v] * COS(a))
       LET(y2 = vertY[v] * COS(b) - z1 * SIN(b))
@@ -235,7 +311,7 @@ FUNCTION(cube3d() AS INTEGER)
       SET(py[v] = 100 + CINT(y2 * 180.0 / (z2 + 160.0)))
     NEXT
     CLS()
-    FOR(e, 0, 11)
+    FOR(e, 0 TO 11)
       LINE(px[edgeA[e]], py[edgeA[e]], px[edgeB[e]], py[edgeB[e]], 32 + ((frame * 2 + e * 16) MOD 192))
     NEXT
     FLIP()
@@ -253,8 +329,8 @@ END_FUNCTION
 // sprite clipping included free of charge, exactly like 1991.
 FUNCTION(spriteBounce() AS INTEGER)
   SCREEN(13)
-  FOR(dy, -15, 15)                              // paint the master ball
-    FOR(dx, -15, 15)
+  FOR(dy, -15 TO 15)                              // paint the master ball
+    FOR(dx, -15 TO 15)
       LET(dist = CINT(SQR(CDBL(dx * dx + dy * dy))))
       IF(dist <= 15) THEN
         PSET(16 + dx, 16 + dy, 47 - dist)       // radial shade through the hue band
@@ -268,15 +344,15 @@ FUNCTION(spriteBounce() AS INTEGER)
   DIM_ARRAY(by, BALLS AS SINGLE)
   DIM_ARRAY(bvx, BALLS AS SINGLE)
   DIM_ARRAY(bvy, BALLS AS SINGLE)
-  FOR(i, 0, BALLS - 1)
+  FOR(i, 0 TO BALLS - 1)
     SET(bx[i] = RND() * 280.0f)
     SET(by[i] = RND() * 160.0f)
     SET(bvx[i] = 1.0f + RND() * 2.5f)
     SET(bvy[i] = 1.0f + RND() * 2.5f)
   NEXT
-  FOR(frame, 1, 260)
+  FOR(frame, 1 TO 260)
     CLS()
-    FOR(i, 0, BALLS - 1)
+    FOR(i, 0 TO BALLS - 1)
       SET(bx[i] = bx[i] + bvx[i])
       SET(by[i] = by[i] + bvy[i])
       IF(bx[i] < 0 OR bx[i] > 288) THEN
@@ -305,7 +381,7 @@ END_FUNCTION
 FUNCTION(fireworks() AS INTEGER)
   SCREEN(13)
   OUT(0x3C8, 0)                                 // ember palette
-  FOR(i, 0, 255)
+  FOR(i, 0 TO 255)
     OUT(0x3C9, i / 4)
     OUT(0x3C9, i * i / 1020)
     OUT(0x3C9, i / 8)
@@ -316,13 +392,13 @@ FUNCTION(fireworks() AS INTEGER)
   DIM_ARRAY(fvx, MAXP AS SINGLE)
   DIM_ARRAY(fvy, MAXP AS SINGLE)
   DIM_ARRAY(flife, MAXP AS SINGLE)
-  FOR(i, 0, MAXP - 1)
+  FOR(i, 0 TO MAXP - 1)
     SET(flife[i] = 0)
   NEXT
   LET(nextBurst = 1)
-  FOR(frame, 1, 320)
-    FOR(y, 0, 199)                              // fade everything: instant trails
-      FOR(x, 0, 319)
+  FOR(frame, 1 TO 320)
+    FOR(y, 0 TO 199)                              // fade everything: instant trails
+      FOR(x, 0 TO 319)
         LET(heat = POINT(x, y))
         IF(heat > 2) THEN
           PSET(x, y, heat - 2)
@@ -335,7 +411,7 @@ FUNCTION(fireworks() AS INTEGER)
       LET(ex = 40.0f + RND() * 240.0f)
       LET(ey = 30.0f + RND() * 100.0f)
       LET(spawned = 0)
-      FOR(i, 0, MAXP - 1)
+      FOR(i, 0 TO MAXP - 1)
         IF(flife[i] <= 0 AND spawned < 90) THEN
           LET(angle = RND() * 2.0f * CSNG(PI))
           LET(speed = 0.5f + RND() * 2.5f)
@@ -349,13 +425,55 @@ FUNCTION(fireworks() AS INTEGER)
       NEXT
       SET(nextBurst = frame + 45)
     ENDIF
-    FOR(i, 0, MAXP - 1)                         // physics, such as it is
+    FOR(i, 0 TO MAXP - 1)                         // physics, such as it is
       IF(flife[i] > 0) THEN
         SET(fx[i] = fx[i] + fvx[i])
         SET(fy[i] = fy[i] + fvy[i])
         SET(fvy[i] = fvy[i] + 0.04f)            // gravity never sleeps
         SET(flife[i] = flife[i] - 1)
         PSET(CINT(fx[i]), CINT(fy[i]), 160 + CINT(flife[i]))
+      ENDIF
+    NEXT
+    FLIP()
+    waitFrame();
+    LET(key = INKEY())
+    IF(key != 0) THEN
+      RETURN(key);
+    ENDIF
+  NEXT
+  RETURN(0);
+END_FUNCTION
+
+// ------------------------------------------------------------------ marquees
+// Scrolltext in all four directions, because a demo without a greeting
+// marquee is legally just a screensaver. Sine-wobbled, hue-cycled, rendered
+// from the DATA font ROM at chunky 2x2 pixels.
+FUNCTION(marquees() AS INTEGER)
+  SCREEN(13)
+  loadFont();
+  LET(message = STRING("GREETINGS TO EVERYONE WHO EVER OWNED A GRAVIS ULTRASOUND! IT IS ALL BASIC NOW..."))
+  LET(letters = LEN(message))
+  CONST(CELL = 14)                              // 5x5 glyph at 2x2 pixels + spacing
+  CONST(PHASE_FRAMES = 130)
+  FOR(frame, 1 TO PHASE_FRAMES * 4)
+    CLS()
+    LET(phase = (frame - 1) / PHASE_FRAMES)     // 0: left, 1: right, 2: up, 3: down
+    LET(advance = ((frame - 1) MOD PHASE_FRAMES) * 4)
+    FOR(idx, 0 TO letters - 1)
+      LET(glyph = glyphOf(ASC(MID$(message, idx + 1, 1))))
+      LET(colour = 32 + ((frame * 2 + idx * 6) MOD 192))
+      IF(phase == 0) THEN                       // right to left, the classic
+        LET(x = 320 - advance + idx * CELL)
+        drawGlyph(glyph, x, 90 + CINT(22.0 * SIN(x * 0.045 + frame * 0.12)), colour, 2);
+      ELSEIF(phase == 1)                        // left to right, for the rebels
+        LET(x = advance - letters * CELL + idx * CELL)
+        drawGlyph(glyph, x, 90 + CINT(22.0 * SIN(x * 0.045 - frame * 0.12)), colour, 2);
+      ELSEIF(phase == 2)                        // bottom to top, credits style
+        LET(y = 200 - advance + idx * CELL)
+        drawGlyph(glyph, 154 + CINT(40.0 * SIN(y * 0.03 + frame * 0.08)), y, colour, 2);
+      ELSE                                      // top to bottom, gravity wins
+        LET(y = advance - letters * CELL + idx * CELL)
+        drawGlyph(glyph, 154 + CINT(40.0 * SIN(y * 0.03 - frame * 0.08)), y, colour, 2);
       ENDIF
     NEXT
     FLIP()
@@ -376,15 +494,15 @@ END_FUNCTION
 FUNCTION(timelessTunnel() AS INTEGER)
   SCREEN(13)
   OUT(0x3C8, 0)                                 // ember palette
-  FOR(i, 0, 255)
+  FOR(i, 0 TO 255)
     OUT(0x3C9, i / 4)
     OUT(0x3C9, i * i / 1020)
     OUT(0x3C9, i / 8)
   NEXT
   PAGES(2)
   ACTIVE_PAGE(0)
-  FOR(dy, -7, 7)                                // paint a little glow orb
-    FOR(dx, -7, 7)
+  FOR(dy, -7 TO 7)                                // paint a little glow orb
+    FOR(dx, -7 TO 7)
       LET(dist = dx * dx + dy * dy)
       IF(dist <= 49) THEN
         PSET(8 + dx, 8 + dy, 255 - dist * 3)
@@ -394,9 +512,9 @@ FUNCTION(timelessTunnel() AS INTEGER)
   DIM(orb AS SPRITE)
   GET_SPRITE(1, 1, 15, 15, orb)
   CLS()
-  FOR(frame, 1, 280)
-    FOR(y, 0, 199)                              // feedback: zoom the hidden page in, fading
-      FOR(x, 0, 319)
+  FOR(frame, 1 TO 280)
+    FOR(y, 0 TO 199)                              // feedback: zoom the hidden page in, fading
+      FOR(x, 0 TO 319)
         ACTIVE_PAGE(1)
         LET(glow = POINT(160 + CINT((x - 160) * 0.93f), 100 + CINT((y - 100) * 0.93f)))
         ACTIVE_PAGE(0)
@@ -407,10 +525,10 @@ FUNCTION(timelessTunnel() AS INTEGER)
         ENDIF
       NEXT
     NEXT
-    FOR(ring, 0, 7)                             // the tunnel: dot rings flying outward
+    FOR(ring, 0 TO 7)                             // the tunnel: dot rings flying outward
       LET(depth = 286 - ((frame * 6 + ring * 32) MOD 256))
       LET(radius = 9000.0f / depth)
-      FOR(dot, 0, 15)
+      FOR(dot, 0 TO 15)
         LET(angle = dot * CSNG(PI) / 8.0f + frame * 0.02f + depth * 0.01f)
         PSET(160 + CINT(radius * CSNG(COS(angle))), 100 + CINT(radius * CSNG(SIN(angle)) * 0.7f), 255)
       NEXT
@@ -434,18 +552,18 @@ END_FUNCTION
 FUNCTION(shadeBobs() AS INTEGER)
   SCREEN(13)
   OUT(0x3C8, 0)
-  FOR(i, 0, 255)
+  FOR(i, 0 TO 255)
     OUT(0x3C9, i / 4)                           // red climbs first
     OUT(0x3C9, i * i / 1020)                    // green follows quadratically
     OUT(0x3C9, i / 8)                           // blue stays shy
   NEXT
   LET(t = 0.0)
-  FOR(frame, 1, 300)
-    FOR(bob, 0, 2)
+  FOR(frame, 1 TO 300)
+    FOR(bob, 0 TO 2)
       LET(cx = CINT(160.0 + 110.0 * SIN(t * 1.1 + bob * 2.1)))
       LET(cy = CINT(100.0 + 70.0 * SIN(t * 1.7 + bob * 1.3)))
-      FOR(dy, -7, 7)
-        FOR(dx, -7, 7)
+      FOR(dy, -7 TO 7)
+        FOR(dx, -7 TO 7)
           IF(dx * dx + dy * dy <= 49) THEN
             LET(shade = POINT(cx + dx, cy + dy))
             IF(shade >= 0 AND shade < 252) THEN
@@ -471,13 +589,13 @@ END_FUNCTION
 // has to pay rent. The & 31 is a real bitmask; AND would be a lie here.
 FUNCTION(rotozoom() AS INTEGER)
   SCREEN(0x10E)                                 // 320x200, 16bpp
-  FOR(frame, 1, 200)
+  FOR(frame, 1 TO 200)
     LET(angle = frame * 0.04)
     LET(zoom = 0.8 + 0.6 * SIN(frame * 0.03))
     LET(ca = COS(angle) * zoom)
     LET(sa = SIN(angle) * zoom)
-    FOR(y, 0, 199)
-      FOR(x, 0, 319)
+    FOR(y, 0 TO 199)
+      FOR(x, 0 TO 319)
         LET(u = CINT((x - 160) * ca - (y - 100) * sa) & 31)
         LET(v = CINT((x - 160) * sa + (y - 100) * ca) & 31)
         IF((u < 16) == (v < 16)) THEN
@@ -527,6 +645,10 @@ FUNCTION(main() AS INTEGER)
       BREAK;
     ENDIF
     SET(key = fireworks())
+    IF(key == 27) THEN
+      BREAK;
+    ENDIF
+    SET(key = marquees())
     IF(key == 27) THEN
       BREAK;
     ENDIF
