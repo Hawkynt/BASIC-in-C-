@@ -57,9 +57,12 @@ Three workflows, one shared build block, three helper scripts:
 | `windows-latest`   | MSVC build of ConsoleSnake + compile **and run** every suite in `tests/` | ✓ |
 | `ubuntu-latest`    | mingw-w64 cross build of ConsoleSnake + compile every suite in `tests/`  | ✓ |
 
-The suites (`Smoke`, `Strings`, `Collections`, `Loops`) exercise the macro
-surface and self-check their results via `tests/TestKit.h`; the cross leg is
-compile-only because the host can't execute Win32 binaries.
+The suites (`Smoke`, `Strings`, `Collections`, `Loops`, `Graphics`, `Music`,
+`Data`, `Files`) exercise the macro surface and self-check their results via
+`tests/TestKit.h`; the cross leg is compile-only because the host can't
+execute Win32 binaries. Graphics tests assert on the framebuffer and the
+rendered ANSI frame string (no console needed); music tests drive the MML
+parser directly (no audible beeping on the runners).
 
 ## What it's for
 
