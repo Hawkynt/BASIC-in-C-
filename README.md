@@ -194,6 +194,13 @@ historically correct segment:
 `POINT(x, y)` reads pixels, `CLS()` wipes the framebuffer, colours mask to the
 mode's depth like the attribute registers of old.
 
+**It fits your window.** `SCREEN` politely asks the terminal to resize
+(xterm-style escape; plenty refuse), and `FLIP()` measures what it actually
+got and **downscales the frame uniformly** to fit — `SCREEN(13)` in an 80×25
+console just works, only chunkier. Bigger terminals render 1:1, aspect is
+preserved (one cell = two pixels), and `WINDOW_FIT(FALSE)` restores raw 1:1
+output for purists who enjoy line wrap.
+
 **Video pages, QB 4.5 style:** `PAGES(2)` allocates VRAM pages back to back,
 `ACTIVE_PAGE(n)` picks where drawing goes, `VISUAL_PAGE(n)` what `FLIP()`
 shows, `PCOPY(src, dst)` blits pages — your hidden backbuffer for feedback

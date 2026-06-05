@@ -22,8 +22,9 @@
 #include <conio.h>
 #else
 // POSIX gets the full BASIC experience too - the terminal IS the hardware.
-#include <termios.h> // INKEY
-#include <unistd.h>  // read
+#include <termios.h>   // INKEY
+#include <unistd.h>    // read
+#include <sys/ioctl.h> // terminal size for the auto-fitting FLIP
 #ifndef TRUE
 #define TRUE true
 #define FALSE false
@@ -387,6 +388,7 @@ inline int __vga_bytes_per_pixel = 1;       // little-endian bytes per pixel in 
 inline int __vga_pages = 1;                 // video pages: VRAM holds them back to back
 inline int __vga_active_page = 0;           // where PSET & friends draw
 inline int __vga_visual_page = 0;           // what FLIP shows
+inline bool __vga_window_fit = true;        // FLIP downscales to the real terminal size
 inline unsigned char __vga_palette[256][3]; // 6-bit DAC values, like mother nature intended
 
 inline size_t __VGA_PAGE_BYTES() {
@@ -480,7 +482,11 @@ inline void __GRAPHICS_IMPL(int width, int height, int colors = 256, unsigned vi
     SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
   SetConsoleOutputCP(CP_UTF8);
 #endif // POSIX terminals speak VT natively
-  std::cout << "\x1b[2J\x1b[?25l" << std::flush;
+  // politely ask the terminal to grow to fit (xterm-style resize; plenty of
+  // terminals ignore us), then clear and hide the cursor. If the ask is
+  // denied, FLIP measures what we actually got and downscales to fit.
+  std::cout << "\x1b[8;" << ((height + 1) / 2 + 1) << ";" << width << "t"
+            << "\x1b[2J\x1b[?25l" << std::flush;
 }
 
 // The QB mode table, plus a Hercules cameo. Each mode parks its video window
@@ -539,6 +545,7 @@ inline void __MODE_UNCHAINED(int width, int height) {
 #define SCREEN_WIDTH() (__vga_width)
 #define SCREEN_HEIGHT() (__vga_height)
 #define SCREEN_COLORS() (__vga_color_mask + 1)
+#define WINDOW_FIT(enabled) __vga_window_fit = (enabled); // FALSE: always render 1:1, wrap and all
 
 // truecolor pixel composers (RGB itself is taken - wingdi got there first)
 #define RGB15(r, g, b) ((((r) >> 3) << 10) | (((g) >> 3) << 5) | ((b) >> 3))
@@ -675,19 +682,51 @@ inline void __VGA_RGB(int pixel, int & r, int & g, int & b) {
   }
 }
 
+// how big is the glass really? false when stdout is a pipe (CI, redirects)
+inline bool __TERMINAL_SIZE(int & columns, int & rows) {
+#ifdef _WIN32
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  if (!GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info)) return false;
+  columns = info.srWindow.Right - info.srWindow.Left + 1;
+  rows = info.srWindow.Bottom - info.srWindow.Top + 1;
+#else
+  winsize size {};
+  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) != 0) return false;
+  columns = size.ws_col;
+  rows = size.ws_row;
+#endif
+  return columns > 0 && rows > 0;
+}
+
 // assembles the ANSI frame: ESC[H, then per cell one upper-half-block whose
-// foreground is the top pixel and background the bottom pixel
-inline STRING __VGA_RENDER() {
+// foreground is the top pixel and background the bottom pixel. When the
+// frame is larger than the given bounds it is downscaled uniformly
+// (nearest neighbour, aspect kept - one cell is two pixels tall).
+inline STRING __VGA_RENDER_INTO(int maxColumns, int maxRows) {
   STRING frame;
   if (__vga_width <= 0) return frame;
-  frame.reserve(static_cast<size_t>(__vga_width) * __vga_height * 8);
+  auto outColumns = __vga_width;
+  auto outRows = (__vga_height + 1) / 2;
+  if (maxColumns > 0 && maxRows > 0 && (outColumns > maxColumns || outRows > maxRows)) {
+    const auto scaleX = static_cast<double>(maxColumns) / __vga_width;
+    const auto scaleY = static_cast<double>(maxRows) * 2.0 / __vga_height;
+    const auto scale = scaleX < scaleY ? scaleX : scaleY;
+    outColumns = static_cast<int>(__vga_width * scale);
+    outRows = static_cast<int>(__vga_height * scale / 2.0);
+    if (outColumns < 1) outColumns = 1;
+    if (outRows < 1) outRows = 1;
+  }
+  frame.reserve(static_cast<size_t>(outColumns) * outRows * 8);
   frame += "\x1b[H";
   char code[32];
-  for (auto y = 0; y < __vga_height; y += 2) {
+  for (auto cy = 0; cy < outRows; ++cy) {
     auto lastTop = -1, lastBottom = -1;
-    for (auto x = 0; x < __vga_width; ++x) {
-      const auto topPixel = __VGA_PIXEL(__vga_visual_page, x, y);
-      const auto bottomPixel = y + 1 < __vga_height ? __VGA_PIXEL(__vga_visual_page, x, y + 1) : 0;
+    const auto topY = static_cast<int>(static_cast<long long>(cy) * 2 * __vga_height / (outRows * 2));
+    const auto bottomY = static_cast<int>((static_cast<long long>(cy) * 2 + 1) * __vga_height / (outRows * 2));
+    for (auto cx = 0; cx < outColumns; ++cx) {
+      const auto x = static_cast<int>(static_cast<long long>(cx) * __vga_width / outColumns);
+      const auto topPixel = __VGA_PIXEL(__vga_visual_page, x, topY);
+      const auto bottomPixel = bottomY < __vga_height ? __VGA_PIXEL(__vga_visual_page, x, bottomY) : 0;
       if (topPixel != lastTop) {
         int r, g, b;
         __VGA_RGB(topPixel, r, g, b);
@@ -704,9 +743,16 @@ inline STRING __VGA_RENDER() {
       }
       frame += "\xE2\x96\x80"; // the mighty upper half block
     }
-    frame += "\x1b[0m\n";
+    frame += "\x1b[0m\x1b[K\n"; // reset + clear the rest of the line
   }
   return frame;
+}
+
+inline STRING __VGA_RENDER() {
+  int columns = 0, rows = 0;
+  if (__vga_window_fit && __TERMINAL_SIZE(columns, rows))
+    return __VGA_RENDER_INTO(columns, rows > 1 ? rows - 1 : 1); // spare a row: no scroll jitter
+  return __VGA_RENDER_INTO(0, 0);
 }
 
 inline void __FLIP_IMPL() {

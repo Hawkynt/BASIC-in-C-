@@ -3,6 +3,8 @@
 #include "TestKit.h"
 
 FUNCTION(main() AS INTEGER)
+  WINDOW_FIT(FALSE)                            // deterministic frames, whatever console CI gives us
+
   // ----- SCREEN 13 ------------------------------------------------------------
   SCREEN(13)
   check(SCREEN_WIDTH() == 320 AND SCREEN_HEIGHT() == 200, "SCREEN 13 is 320x200");
@@ -87,6 +89,18 @@ FUNCTION(main() AS INTEGER)
   check(INSTR(frame, "\xE2\x96\x80") > 0, "frame uses the upper half block");
   check(INSTR(frame, "\x1b[38;2;") > 0 AND INSTR(frame, "\x1b[48;2;") > 0, "frame uses 24-bit ANSI colours");
   check(LEN(frame) > 160 * 50 * 3, "frame covers every cell");
+
+  // ----- auto-fit: the frame scales down to the real terminal ---------------------------------------------------
+  PSET(0, 0, 15)                               // a white beacon in the top-left pixel
+  LET(scaled = __VGA_RENDER_INTO(80, 200))     // width-bound: 160x100 -> 80 cols, 25 rows
+  check(TALLY(scaled, "\n") == 25, "render scales down uniformly to fit the width");
+  check(INSTR(scaled, "\x1b[38;2;255;255;255m") > 0, "scaled frame still samples the framebuffer");
+  LET(tiny = __VGA_RENDER_INTO(16, 5))         // height and width agree at scale 0.1
+  check(TALLY(tiny, "\n") == 5, "render scales down to tiny terminals");
+  LET(unbounded = __VGA_RENDER_INTO(0, 0))
+  check(TALLY(unbounded, "\n") == 50, "no bounds, no scaling");
+  LET(roomy = __VGA_RENDER_INTO(500, 500))
+  check(TALLY(roomy, "\n") == 50, "bigger terminals never upscale");
 
   // ----- the mode zoo --------------------------------------------------------------------------------------------
   SCREEN(1)
