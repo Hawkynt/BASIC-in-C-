@@ -51,13 +51,14 @@ jobs:
         if: runner.os == 'Windows'
         run: msbuild ConsoleSnake/ConsoleSnake.sln /m /p:Configuration=Release /p:Platform=x64
 
+      # (-o snake: "ConsoleSnake" the directory is already squatting that name)
       - name: Build (native g++)
         if: runner.os == 'Linux'
-        run: g++ -std=c++17 -Wall -O2 -o ConsoleSnake ConsoleSnake/ConsoleSnake.cpp
+        run: g++ -std=c++17 -Wall -O2 -o snake ConsoleSnake/ConsoleSnake.cpp
 
       - name: Build (native clang)
         if: runner.os == 'macOS'
-        run: clang++ -std=c++17 -Wall -O2 -o ConsoleSnake ConsoleSnake/ConsoleSnake.cpp
+        run: clang++ -std=c++17 -Wall -O2 -o snake ConsoleSnake/ConsoleSnake.cpp
 
       # gcc eyes on the Win32 backend, so #ifdef _WIN32 breakage shows up here
       - name: Cross-check the Win32 path (mingw-w64)
