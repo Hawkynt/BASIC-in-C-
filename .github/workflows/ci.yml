@@ -10,12 +10,14 @@ on:
   workflow_call: {}
 
 # ---------------------------------------------------------------------------
-# BASIC.h is a Win32 header (windows.h + conio.h), so both matrix legs build
-# FOR Windows: the windows leg natively with MSVC (the project's home turf),
-# the ubuntu leg cross-compiles with mingw-w64 so a second, pickier compiler
-# keeps the macro madness honest.
+# BASIC.h carries a Win32 backend (windows.h + conio.h) and a POSIX backend
+# (termios + ANSI), so the suites BUILD AND RUN natively on all three OSes:
+#   windows  - MSVC, the project's home turf
+#   ubuntu   - native g++, plus a mingw-w64 cross-compile of the Win32 path
+#              so a second compiler keeps the #ifdef _WIN32 side honest
+#   macos    - clang, because the 80s deserve retina
 #
-# Required tier: build ConsoleSnake + compile/run the macro smoke suite.
+# Required tier: build ConsoleSnake + demo, compile & run every tests/ suite.
 # ---------------------------------------------------------------------------
 
 # Force JavaScript-based actions to run on Node 24 instead of the deprecated Node 20 ahead of
@@ -29,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -49,9 +51,20 @@ jobs:
         if: runner.os == 'Windows'
         run: msbuild ConsoleSnake/ConsoleSnake.sln /m /p:Configuration=Release /p:Platform=x64
 
-      - name: Build (mingw-w64 cross)
+      - name: Build (native g++)
         if: runner.os == 'Linux'
-        run: x86_64-w64-mingw32-g++ -std=c++17 -Wall -static -o ConsoleSnake.exe ConsoleSnake/ConsoleSnake.cpp
+        run: g++ -std=c++17 -Wall -O2 -o ConsoleSnake ConsoleSnake/ConsoleSnake.cpp
+
+      - name: Build (native clang)
+        if: runner.os == 'macOS'
+        run: clang++ -std=c++17 -Wall -O2 -o ConsoleSnake ConsoleSnake/ConsoleSnake.cpp
+
+      # gcc eyes on the Win32 backend, so #ifdef _WIN32 breakage shows up here
+      - name: Cross-check the Win32 path (mingw-w64)
+        if: runner.os == 'Linux'
+        run: |
+          x86_64-w64-mingw32-g++ -std=c++17 -Wall -static -o ConsoleSnake.exe ConsoleSnake/ConsoleSnake.cpp
+          x86_64-w64-mingw32-g++ -std=c++17 -Wall -O2 -static -o demo.exe Demos/SecondUnreality.cpp
 
       # The demoscene tribute is compile-only: CI runners don't deserve plasma.
       - name: Build demo (MSVC, compile-only)
@@ -59,9 +72,9 @@ jobs:
         shell: bash
         run: cl -nologo -EHsc -std:c++17 -W4 -O2 Demos/SecondUnreality.cpp -Fe:demo.exe
 
-      - name: Build demo (mingw-w64 cross, compile-only)
-        if: runner.os == 'Linux'
-        run: x86_64-w64-mingw32-g++ -std=c++17 -Wall -O2 -static -o demo.exe Demos/SecondUnreality.cpp
+      - name: Build demo (native, compile-only)
+        if: runner.os != 'Windows'
+        run: c++ -std=c++17 -Wall -O2 -o demo Demos/SecondUnreality.cpp
 
       # This tier is REQUIRED -- do NOT add continue-on-error here.
       # (dash-style cl flags because MSYS bash mangles slash-style ones)
@@ -77,13 +90,13 @@ jobs:
             "./$name.exe"
           done
 
-      # Cross-built binaries can't run on the Linux host, so this leg is a
-      # compile-only check of the same suites (the windows leg executes them).
-      - name: Test (mingw-w64 cross) — compile every suite in tests/
-        if: runner.os == 'Linux'
+      - name: Test (native) — compile and run every suite in tests/
+        if: runner.os != 'Windows'
         run: |
           set -e
           for f in tests/*.cpp; do
-            echo "=== $f ==="
-            x86_64-w64-mingw32-g++ -std=c++17 -Wall -static -o "$(basename "$f" .cpp).exe" "$f"
+            name=$(basename "$f" .cpp)
+            echo "=== $name ==="
+            c++ -std=c++17 -Wall -o "$name" "$f"
+            "./$name"
           done

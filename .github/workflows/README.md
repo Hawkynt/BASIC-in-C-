@@ -49,20 +49,20 @@ Three workflows, one shared build block, three helper scripts:
 
 ## Test tiers
 
-`BASIC.h` is a Win32 header (windows.h + conio.h), so both matrix legs build
-**for** Windows:
+`BASIC.h` carries a Win32 backend and a POSIX backend, so every matrix leg
+builds **and runs** the suites natively:
 
 | Leg                | What runs                              | Required? |
 |--------------------|----------------------------------------|-----------|
-| `windows-latest`   | MSVC build of ConsoleSnake + compile **and run** every suite in `tests/` | ✓ |
-| `ubuntu-latest`    | mingw-w64 cross build of ConsoleSnake + compile every suite in `tests/`  | ✓ |
+| `windows-latest`   | MSVC build of ConsoleSnake + demo, compile **and run** every suite | ✓ |
+| `ubuntu-latest`    | native g++ build + run of everything, plus a mingw-w64 cross-compile of the Win32 path | ✓ |
+| `macos-latest`     | native clang build + run of everything | ✓ |
 
 The suites (`Smoke`, `Strings`, `Collections`, `Loops`, `Graphics`, `Music`,
 `Data`, `Files`) exercise the macro surface and self-check their results via
-`tests/TestKit.h`; the cross leg is compile-only because the host can't
-execute Win32 binaries. Graphics tests assert on the framebuffer and the
-rendered ANSI frame string (no console needed); music tests drive the MML
-parser directly (no audible beeping on the runners).
+`tests/TestKit.h`. Graphics tests assert on the framebuffer and the rendered
+ANSI frame string (no console needed); music tests drive the MML parser
+directly (no audible beeping on the runners).
 
 ## What it's for
 
@@ -108,6 +108,6 @@ then mirror the change here.
 
 | Artifact                                             | Produced by          |
 |------------------------------------------------------|----------------------|
-| `ConsoleSnake-win-x64.exe` / `ConsoleSnake-win-x86.exe` | release + nightly |
-| `SecondUnreality-win-x64.exe` (demoscene tribute)    | release + nightly    |
+| `ConsoleSnake-<target>[.exe]` for win-x86/x64/arm64, linux-x86/x64/arm64, macos-x64/arm64 | release + nightly |
+| `SecondUnreality-<target>[.exe]` for the same eight targets (demoscene tribute) | release + nightly |
 | `BASIC.h`                                            | release + nightly    |

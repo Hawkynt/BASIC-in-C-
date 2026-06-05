@@ -93,9 +93,15 @@ Except this time, it's **C++** wearing BASIC's skin.
 | -------------- | ---------------------------------------- |
 | `PRINT(...)`   | Sends to `std::cout << ...`              |
 | `INPUT(x)`     | Reads into `x` from `cin`                |
-| `CLS()`        | Clears screen (WinAPI, no system())      |
+| `CLS()`        | Clears screen (WinAPI / ANSI, no system())|
 | `LOCATE(y,x)`  | Moves cursor to line/column              |
-| `COLOR(fg,bg)` | Sets color via `SetConsoleTextAttribute` |
+| `COLOR(fg,bg)` | DOS colours via console API or ANSI      |
+| `INKEY()`      | Non-blocking key; POSIX arrows arrive as DOS scan codes |
+
+Yes, **it runs on Linux and macOS too** — the header carries a Win32 backend
+and a POSIX backend (termios + ANSI), and the terminal was the real hardware
+all along. `PLAY` mimes on POSIX (sleeps in perfect tempo); everything else
+is identical.
 
 ### 🧠 Types
 
@@ -425,21 +431,26 @@ Yes, it’s beautiful.
 
 ## 🔧 Building
 
-It's a single header — `#include "BASIC.h"` and go. The ConsoleSnake demo builds with:
+It's a single header — `#include "BASIC.h"` and go, on Windows, Linux and
+macOS. The ConsoleSnake demo builds with:
 
 ```sh
 # MSVC (Visual Studio 2022)
 msbuild ConsoleSnake/ConsoleSnake.sln /p:Configuration=Release /p:Platform=x64
 
-# mingw-w64 (also cross-compiles from Linux)
+# anything POSIX with a C++17 compiler
+c++ -std=c++17 -O2 -o ConsoleSnake ConsoleSnake/ConsoleSnake.cpp
+
+# mingw-w64 (cross-compiles the Win32 build from Linux)
 x86_64-w64-mingw32-g++ -std=c++17 -static -o ConsoleSnake.exe ConsoleSnake/ConsoleSnake.cpp
 ```
 
-CI builds both on every push, compiles and runs every unit-test suite in
-`tests/` (smoke, strings, collections, loops — all written in the dialect
-itself), publishes a `nightly-yyyyMMdd` prerelease on every green main build,
-and a manual dispatch of the Release workflow cuts a dated `vyyyyMMdd`
-release — binaries for both architectures plus the header itself.
+CI builds and **runs** every unit-test suite in `tests/` natively on
+windows + ubuntu + macos, publishes a `nightly-yyyyMMdd` prerelease on every
+green main build, and a manual dispatch of the Release workflow cuts a dated
+`vyyyyMMdd` release. Shipped targets: **win-x86/x64/arm64,
+linux-x86/x64/arm64, macos-x64/arm64** — ConsoleSnake and SecondUnreality for
+each, plus the header itself.
 
 ---
 

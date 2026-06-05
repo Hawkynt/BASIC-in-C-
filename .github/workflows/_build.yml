@@ -4,8 +4,9 @@ name: Build artifacts
 # nightly.yml (auto, on CI success). Single place that turns a commit into
 # shippable artifacts so release and nightly never diverge.
 #
-# Artifacts shipped: the ConsoleSnake demo game for both Windows architectures
-# plus BASIC.h itself — the header IS the product.
+# One matrix entry per shipping target - windows/linux/macos across
+# x86/x64/arm64 (where the OS still admits the architecture exists).
+# Each target uploads its own artifact; release/nightly merge them all.
 #
 # `version.pl --stamp` runs for uniformity with the repo family; this repo has
 # no package manifests, so it leaves everything untouched.
@@ -28,7 +29,20 @@ env:
 
 jobs:
   build:
-    runs-on: windows-latest
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: win-x86,     msvc: amd64_x86 }
+          - { os: windows-latest, target: win-x64,     msvc: amd64 }
+          - { os: windows-latest, target: win-arm64,   msvc: amd64_arm64 }
+          - { os: ubuntu-latest,  target: linux-x86 }
+          - { os: ubuntu-latest,  target: linux-x64 }
+          - { os: ubuntu-latest,  target: linux-arm64 }
+          - { os: macos-latest,   target: macos-x64 }
+          - { os: macos-latest,   target: macos-arm64 }
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,31 +50,56 @@ jobs:
           fetch-depth: 0                           # version.pl counts commits
 
       - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: ${{ matrix.msvc }}
+
+      - name: Set up cross toolchain (linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          if [ "${{ matrix.target }}" = "linux-x86" ]; then sudo apt-get install -y g++-multilib; fi
+          if [ "${{ matrix.target }}" = "linux-arm64" ]; then sudo apt-get install -y g++-aarch64-linux-gnu; fi
 
       - name: Stamp per-package versions
         shell: bash
         run: perl .github/workflows/scripts/version.pl --stamp
 
-      - name: Build (Release, x64 + x86)
-        run: |
-          msbuild ConsoleSnake/ConsoleSnake.sln /m /p:Configuration=Release /p:Platform=x64
-          msbuild ConsoleSnake/ConsoleSnake.sln /m /p:Configuration=Release /p:Platform=x86
-
-      - name: Build demoscene tribute
-        shell: bash
-        run: cl -nologo -EHsc -std:c++17 -O2 Demos/SecondUnreality.cpp -Fe:SecondUnreality.exe
-
-      - name: Collect artifacts
+      - name: Build (MSVC)
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           mkdir -p dist
-          cp ConsoleSnake/bin/x64/Release/ConsoleSnake.exe   dist/ConsoleSnake-win-x64.exe
-          cp ConsoleSnake/bin/Win32/Release/ConsoleSnake.exe dist/ConsoleSnake-win-x86.exe
-          cp SecondUnreality.exe dist/SecondUnreality-win-x64.exe
-          cp BASIC.h dist/BASIC.h
+          cl -nologo -EHsc -std:c++17 -O2 ConsoleSnake/ConsoleSnake.cpp -Fe:dist/ConsoleSnake-${{ matrix.target }}.exe
+          cl -nologo -EHsc -std:c++17 -O2 Demos/SecondUnreality.cpp -Fe:dist/SecondUnreality-${{ matrix.target }}.exe
+
+      - name: Build (linux gcc)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          case "${{ matrix.target }}" in
+            linux-x86)   CXX="g++ -m32" ;;
+            linux-arm64) CXX="aarch64-linux-gnu-g++" ;;
+            *)           CXX="g++" ;;
+          esac
+          $CXX -std=c++17 -O2 -static -o dist/ConsoleSnake-${{ matrix.target }} ConsoleSnake/ConsoleSnake.cpp
+          $CXX -std=c++17 -O2 -static -o dist/SecondUnreality-${{ matrix.target }} Demos/SecondUnreality.cpp
+
+      - name: Build (macos clang)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist
+          ARCH=$(echo "${{ matrix.target }}" | sed 's/macos-//; s/x64/x86_64/')
+          clang++ -std=c++17 -O2 -arch "$ARCH" -o dist/ConsoleSnake-${{ matrix.target }} ConsoleSnake/ConsoleSnake.cpp
+          clang++ -std=c++17 -O2 -arch "$ARCH" -o dist/SecondUnreality-${{ matrix.target }} Demos/SecondUnreality.cpp
+
+      - name: Include the header itself (the header IS the product)
+        if: matrix.target == 'win-x64'
+        shell: bash
+        run: cp BASIC.h dist/BASIC.h
 
       - uses: actions/upload-artifact@v4
         with:
-          name: app-artifacts
+          name: app-artifacts-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error

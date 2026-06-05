@@ -14,8 +14,31 @@
 #include <vector>    // LIST_OF
 #include <map>       // DICTIONARY_OF
 #include <algorithm> // LIST_SORT, LIST_REVERSE, LIST_CONTAINS
+#include <chrono>    // TIMER, INP(&H3DA)
+#include <thread>    // SLEEP
+
+#ifdef _WIN32
 #include <windows.h>
 #include <conio.h>
+#else
+// POSIX gets the full BASIC experience too - the terminal IS the hardware.
+#include <termios.h> // INKEY
+#include <unistd.h>  // read
+#ifndef TRUE
+#define TRUE true
+#define FALSE false
+#endif
+#endif
+
+// wall clock since program start (seconds) and a portable nap
+inline double __BASIC_CLOCK() {
+  static const auto start = std::chrono::steady_clock::now();
+  return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+}
+
+inline void __BASIC_SLEEP(int milliseconds) {
+  if (milliseconds > 0) std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+}
 
 // macro hacks
 #define CONCAT2(a, b) a##b
@@ -449,12 +472,14 @@ inline void __GRAPHICS_IMPL(int width, int height, int colors = 256, unsigned vi
     }
   }
   if (width <= 0) return;
-  // best effort: VT processing + UTF-8 + hidden cursor (fails harmlessly when piped)
+#ifdef _WIN32
+  // best effort: VT processing + UTF-8 (fails harmlessly when piped)
   const HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
   DWORD mode = 0;
   if (GetConsoleMode(handle, &mode))
     SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
   SetConsoleOutputCP(CP_UTF8);
+#endif // POSIX terminals speak VT natively
   std::cout << "\x1b[2J\x1b[?25l" << std::flush;
 }
 
@@ -818,14 +843,7 @@ inline int __vga_sequencer_index = 0, __vga_gc_index = 0;
 inline std::map<int, BYTE> __basic_ports;
 
 inline int __VGA_STATUS() {
-  static const double frequency = [] {
-    LARGE_INTEGER f;
-    QueryPerformanceFrequency(&f);
-    return static_cast<double>(f.QuadPart);
-  }();
-  LARGE_INTEGER now;
-  QueryPerformanceCounter(&now);
-  const auto frames = now.QuadPart / frequency * 60.0;     // the fake 60Hz crystal
+  const auto frames = __BASIC_CLOCK() * 60.0;              // the fake 60Hz crystal
   const auto framePhase = frames - std::floor(frames);
   const auto lines = framePhase * 262.0;                   // and its 262 fake scanlines
   const auto linePhase = lines - std::floor(lines);
@@ -979,9 +997,9 @@ inline void __PAINT_BORDER_IMPL(int x, int y, int color, int borderColor) {
 #define PAINT_PATTERN(x, y, tile, tileWidth, borderColor) __PAINT_FLOOD(x, y, borderColor, tile, tileWidth);
 
 // I/O
-#define SLEEP(ms) Sleep(ms);
+#define SLEEP(ms) __BASIC_SLEEP(static_cast<int>(ms));
 #define RND() (static_cast<float>(rand()) / static_cast<float>(RAND_MAX))
-#define TIMER() (static_cast<float>(std::clock()) / CLOCKS_PER_SEC)
+#define TIMER() (static_cast<float>(__BASIC_CLOCK()))
 #define RANDOMIZE_TIMER() srand(static_cast<unsigned int>(time(nullptr)));
 
 template<typename... Args>
@@ -997,6 +1015,7 @@ inline void __CLS_IMPL() {
     std::fill_n(__vga_framebuffer.begin() + static_cast<std::ptrdiff_t>(bytes) * __vga_active_page, bytes, static_cast<BYTE>(0));
   }
 
+#ifdef _WIN32
   const HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
   CONSOLE_SCREEN_BUFFER_INFO csbi;
   DWORD count;
@@ -1006,15 +1025,59 @@ inline void __CLS_IMPL() {
   FillConsoleOutputCharacter(hOut, ' ', cells, { 0, 0 }, &count);
   FillConsoleOutputAttribute(hOut, csbi.wAttributes, cells, { 0, 0 }, &count);
   SetConsoleCursorPosition(hOut, { 0, 0 });
+#else
+  std::cout << "\x1b[2J\x1b[H" << std::flush;
+#endif
 }
 
 #define CLS() __CLS_IMPL();
 
+#ifdef _WIN32
 #define LOCATE(r,c) { COORD pos = { static_cast<SHORT>(c-1), static_cast<SHORT>(r-1) }; SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), pos); }
 #define COLOR(fg,bg) SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), ((bg)<<4) | (fg));
+#else
+// DOS colour order is not ANSI colour order, because of course it isn't
+inline void __COLOR_IMPL(int fg, int bg) {
+  static const int map[8] = {0, 4, 2, 6, 1, 5, 3, 7};
+  std::cout << "\x1b[" << (((fg) & 8) ? 90 : 30) + map[fg & 7]
+            << ";"     << (((bg) & 8) ? 100 : 40) + map[bg & 7] << "m" << std::flush;
+}
+#define LOCATE(r,c) { std::cout << "\x1b[" << (r) << ";" << (c) << "H" << std::flush; }
+#define COLOR(fg,bg) __COLOR_IMPL(fg, bg);
+#endif
 
 #define INPUT(var) std::cin >> var;
+
+#ifdef _WIN32
 #define INKEY() (_kbhit() ? _getch() : 0)
+#else
+// raw, non-blocking, and it translates ANSI arrow sequences to the DOS scan
+// codes (72/80/77/75) so ConsoleSnake steers the same on every OS
+inline int __INKEY_IMPL() {
+  termios original;
+  if (tcgetattr(STDIN_FILENO, &original) != 0) return 0;
+  termios raw = original;
+  raw.c_lflag &= ~(ICANON | ECHO);
+  raw.c_cc[VMIN] = 0;
+  raw.c_cc[VTIME] = 0;
+  tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+  unsigned char byte = 0;
+  auto key = read(STDIN_FILENO, &byte, 1) == 1 ? static_cast<int>(byte) : 0;
+  if (key == 27) {
+    unsigned char sequence[2] = {0, 0};
+    if (read(STDIN_FILENO, sequence, 2) == 2 && sequence[0] == '[')
+      switch (sequence[1]) {
+        case 'A': key = 72; break;
+        case 'B': key = 80; break;
+        case 'C': key = 77; break;
+        case 'D': key = 75; break;
+      }
+  }
+  tcsetattr(STDIN_FILENO, TCSANOW, &original);
+  return key;
+}
+#define INKEY() __INKEY_IMPL()
+#endif
 
 #define RUN(cmd) std::system(cmd);
 
@@ -1109,17 +1172,29 @@ inline std::vector<__MML_NOTE> __MML_PARSE(const STRING & tune) {
 }
 
 inline void __SOUND_IMPL(double frequency, double ticks) {
-  const auto milliseconds = static_cast<DWORD>(ticks * 1000.0 / 18.2);
-  if (frequency < 37 || frequency > 32767) { Sleep(milliseconds); return; }
-  Beep(static_cast<DWORD>(frequency), milliseconds);
+  const auto milliseconds = static_cast<int>(ticks * 1000.0 / 18.2);
+#ifdef _WIN32
+  if (frequency >= 37 && frequency <= 32767) {
+    Beep(static_cast<DWORD>(frequency), static_cast<DWORD>(milliseconds));
+    return;
+  }
+#else
+  (void)frequency; // POSIX: the orchestra mimes, but stays perfectly in time
+#endif
+  __BASIC_SLEEP(milliseconds);
 }
 
 inline void __PLAY_IMPL(const STRING & tune) {
   for (const auto & note : __MML_PARSE(tune)) {
-    if (note.frequency < 37) { Sleep(static_cast<DWORD>(note.totalMilliseconds)); continue; }
-    Beep(static_cast<DWORD>(note.frequency), static_cast<DWORD>(note.soundMilliseconds));
-    const auto gap = note.totalMilliseconds - note.soundMilliseconds;
-    if (gap >= 1) Sleep(static_cast<DWORD>(gap));
+#ifdef _WIN32
+    if (note.frequency >= 37) {
+      Beep(static_cast<DWORD>(note.frequency), static_cast<DWORD>(note.soundMilliseconds));
+      const auto gap = note.totalMilliseconds - note.soundMilliseconds;
+      if (gap >= 1) __BASIC_SLEEP(static_cast<int>(gap));
+      continue;
+    }
+#endif
+    __BASIC_SLEEP(static_cast<int>(note.totalMilliseconds)); // rests - and on POSIX, the whole gig
   }
 }
 
