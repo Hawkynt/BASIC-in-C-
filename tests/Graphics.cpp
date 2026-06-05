@@ -79,14 +79,63 @@ FUNCTION(main() AS INTEGER)
   check(__vga_palette[6][0] == 63 AND __vga_palette[6][1] == 0 AND __vga_palette[6][2] == 63, "PALETTE clamps to 0..63");
 
   // ----- the ANSI renderer ------------------------------------------------------------------------------------
-  SCREEN(7)
-  check(SCREEN_WIDTH() == 160 AND SCREEN_HEIGHT() == 100, "SCREEN 7 is 160x100");
+  GRAPHICS(160, 100)
+  check(SCREEN_WIDTH() == 160 AND SCREEN_HEIGHT() == 100, "GRAPHICS sets a custom resolution");
   PSET(0, 0, 4)
   LET(frame = __VGA_RENDER())
   check(TALLY(frame, "\n") == 50, "one text row per two pixel rows");
   check(INSTR(frame, "\xE2\x96\x80") > 0, "frame uses the upper half block");
   check(INSTR(frame, "\x1b[38;2;") > 0 AND INSTR(frame, "\x1b[48;2;") > 0, "frame uses 24-bit ANSI colours");
   check(LEN(frame) > 160 * 50 * 3, "frame covers every cell");
+
+  // ----- the mode zoo --------------------------------------------------------------------------------------------
+  SCREEN(1)
+  check(SCREEN_WIDTH() == 320 AND SCREEN_HEIGHT() == 200 AND SCREEN_COLORS() == 4, "SCREEN 1 is CGA 320x200x4");
+  PSET(5, 0, 7)
+  check(POINT(5, 0) == 3, "CGA masks colours to 0..3");
+  check(__vga_palette[1][0] == 21 AND __vga_palette[1][1] == 63 AND __vga_palette[1][2] == 63, "CGA colour 1 is light cyan");
+  DEF_SEG(0xB800)
+  POKE(0, 3)
+  check(POINT(0, 0) == 3, "CGA video lives at B800");
+  DEF_SEG(0xA000)
+  POKE(0, 2)
+  check(POINT(0, 0) == 3, "A000 is plain RAM while CGA is on");
+
+  SCREEN(2)
+  check(SCREEN_WIDTH() == 640 AND SCREEN_HEIGHT() == 200 AND SCREEN_COLORS() == 2, "SCREEN 2 is CGA 640x200x2");
+  check(__vga_palette[1][0] == 63 AND __vga_palette[1][1] == 63 AND __vga_palette[1][2] == 63, "mode 2 is white on black");
+
+  SCREEN(3)
+  check(SCREEN_WIDTH() == 720 AND SCREEN_HEIGHT() == 348 AND SCREEN_COLORS() == 2, "SCREEN 3 is Hercules 720x348");
+  check(__vga_palette[1][0] == 0 AND __vga_palette[1][1] == 63 AND __vga_palette[1][2] == 0, "green phosphor, as nature intended");
+  DEF_SEG(0xB000)
+  POKE(0, 1)
+  check(POINT(0, 0) == 1, "Hercules video lives at B000");
+
+  SCREEN(7)
+  check(SCREEN_WIDTH() == 320 AND SCREEN_HEIGHT() == 200 AND SCREEN_COLORS() == 16, "SCREEN 7 is EGA 320x200x16");
+  SCREEN(8)
+  check(SCREEN_WIDTH() == 640 AND SCREEN_HEIGHT() == 200 AND SCREEN_COLORS() == 16, "SCREEN 8 is EGA 640x200x16");
+  SCREEN(9)
+  check(SCREEN_WIDTH() == 640 AND SCREEN_HEIGHT() == 350 AND SCREEN_COLORS() == 16, "SCREEN 9 is EGA 640x350x16");
+  SCREEN(12)
+  check(SCREEN_WIDTH() == 640 AND SCREEN_HEIGHT() == 480 AND SCREEN_COLORS() == 16, "SCREEN 12 is VGA 640x480x16");
+  PSET(0, 0, 200)
+  check(POINT(0, 0) == 8, "16-colour modes mask to 0..15");
+
+  // ----- real-mode address arithmetic: physical = segment * 16 + offset --------------------------------------------
+  SCREEN(13)
+  PSET(16, 0, 7)
+  DEF_SEG(0xA001)
+  check(PEEK(0) == 7, "A001:0000 is A000:0010");
+  DEF_SEG(0x9FFF)
+  check(PEEK(0x20) == 7, "9FFF:0020 is A000:0010 too");
+  POKE(0x10, 5)                                // 9FFF:0010 = physical 0xA0000 = pixel (0,0)
+  check(POINT(0, 0) == 5, "9FFF:0010 pokes the first pixel");
+  DEF_SEG(0xFFFF)
+  POKE(0x10, 99)                               // physical 0x100000 wraps to 0x00000
+  DEF_SEG(0)
+  check(PEEK(0) == 99, "FFFF:0010 wraps to 0000:0000 (the A20 line is off in this house)");
 
   // ----- back to text mode ---------------------------------------------------------------------------------------
   SCREEN(0)

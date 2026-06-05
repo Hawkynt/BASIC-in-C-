@@ -344,6 +344,8 @@ LIST_OF(typename TDict::mapped_type) DICT_VALUES(const TDict & dict) {
 inline std::vector<BYTE> __vga_framebuffer;
 inline int __vga_width = 0;
 inline int __vga_height = 0;
+inline int __vga_color_mask = 255;          // colours-1 of the active mode; PSET masks with it
+inline unsigned __vga_video_base = 0xA0000; // physical base of the video window (mode-dependent)
 inline unsigned char __vga_palette[256][3]; // 6-bit DAC values, like mother nature intended
 
 inline void __VGA_DEFAULT_PALETTE() {
@@ -393,11 +395,25 @@ inline void __VGA_DEFAULT_PALETTE() {
     __vga_palette[index][0] = __vga_palette[index][1] = __vga_palette[index][2] = 0;
 }
 
-inline void __GRAPHICS_IMPL(int width, int height) {
+inline void __GRAPHICS_IMPL(int width, int height, int colors = 256, unsigned videoBase = 0xA0000) {
   __vga_width = width;
   __vga_height = height;
+  __vga_color_mask = colors - 1;
+  __vga_video_base = videoBase;
   __vga_framebuffer.assign(width > 0 ? static_cast<size_t>(width) * height : 0, 0);
   __VGA_DEFAULT_PALETTE();
+  if (colors == 4) {
+    // CGA palette 1, high intensity: the cyan/magenta/white of childhood memories
+    __vga_palette[1][0] = 21; __vga_palette[1][1] = 63; __vga_palette[1][2] = 63;
+    __vga_palette[2][0] = 63; __vga_palette[2][1] = 21; __vga_palette[2][2] = 63;
+    __vga_palette[3][0] = 63; __vga_palette[3][1] = 63; __vga_palette[3][2] = 63;
+  } else if (colors == 2) {
+    if (videoBase == 0xB0000) { // Hercules: green phosphor, as nature intended
+      __vga_palette[1][0] = 0;  __vga_palette[1][1] = 63; __vga_palette[1][2] = 0;
+    } else {                    // CGA mode 2: plain white on black
+      __vga_palette[1][0] = 63; __vga_palette[1][1] = 63; __vga_palette[1][2] = 63;
+    }
+  }
   if (width <= 0) return;
   // best effort: VT processing + UTF-8 + hidden cursor (fails harmlessly when piped)
   const HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -408,10 +424,18 @@ inline void __GRAPHICS_IMPL(int width, int height) {
   std::cout << "\x1b[2J\x1b[?25l" << std::flush;
 }
 
+// The QB mode table, plus a Hercules cameo. Each mode parks its video window
+// at the historically correct segment.
 inline void __SCREEN_IMPL(int mode) {
   switch (mode) {
-    case 13: __GRAPHICS_IMPL(320, 200); break;  // the one true mode
-    case 7:  __GRAPHICS_IMPL(160, 100); break;  // fits a regular console window
+    case 1:  __GRAPHICS_IMPL(320, 200, 4,   0xB8000); break; // CGA
+    case 2:  __GRAPHICS_IMPL(640, 200, 2,   0xB8000); break; // CGA mono
+    case 3:  __GRAPHICS_IMPL(720, 348, 2,   0xB0000); break; // Hercules
+    case 7:  __GRAPHICS_IMPL(320, 200, 16,  0xA0000); break; // EGA
+    case 8:  __GRAPHICS_IMPL(640, 200, 16,  0xA0000); break; // EGA
+    case 9:  __GRAPHICS_IMPL(640, 350, 16,  0xA0000); break; // EGA
+    case 12: __GRAPHICS_IMPL(640, 480, 16,  0xA0000); break; // VGA hi-res
+    case 13: __GRAPHICS_IMPL(320, 200, 256, 0xA0000); break; // the one true mode
     default: __GRAPHICS_IMPL(0, 0); std::cout << "\x1b[?25h" << std::flush; break; // SCREEN(0): back to text
   }
 }
@@ -420,10 +444,11 @@ inline void __SCREEN_IMPL(int mode) {
 #define GRAPHICS(width, height) __GRAPHICS_IMPL(width, height);
 #define SCREEN_WIDTH() (__vga_width)
 #define SCREEN_HEIGHT() (__vga_height)
+#define SCREEN_COLORS() (__vga_color_mask + 1)
 
 inline void __PSET_IMPL(int x, int y, int color) {
   if (x < 0 || y < 0 || x >= __vga_width || y >= __vga_height) return;
-  __vga_framebuffer[static_cast<size_t>(y) * __vga_width + x] = static_cast<BYTE>(color & 0xFF);
+  __vga_framebuffer[static_cast<size_t>(y) * __vga_width + x] = static_cast<BYTE>(color & __vga_color_mask);
 }
 
 inline int __POINT_IMPL(int x, int y) {
@@ -542,31 +567,41 @@ inline void __FLIP_IMPL() {
 #define FLIP() __FLIP_IMPL();
 
 // ===========================================================================
-// PEEK / POKE / DEF SEG. Sixty-four kilobytes of perfectly fake RAM - except
-// segment &HA000 (spelled 0xA000, C++ has feelings too), which is memory-
-// mapped onto the live framebuffer exactly like the real mode 13h. Yes,
-// POKE(y * 320 + x, colour) draws a pixel. You're welcome and we're sorry.
+// PEEK / POKE / DEF SEG. One flat megabyte of perfectly fake RAM with honest
+// real-mode address arithmetic: physical = segment * 16 + offset, wrapping at
+// 1MB because the A20 line is off in this house. So A001:0000 and A000:0010
+// and 9FFF:0020 are all the same byte - just like grandpa's 8086.
+// The active video mode maps its framebuffer at the historically correct
+// window (&HA000 for EGA/VGA, &HB800 for CGA, &HB000 for Hercules - spelled
+// 0xA000 etc, C++ has feelings too), one linear byte per pixel (the chain-4
+// fantasy; planar masochism not included). Yes, POKE(y * 320 + x, colour)
+// draws a pixel in SCREEN 13. You're welcome and we're sorry.
 // ===========================================================================
 inline unsigned __basic_segment = 0;
-inline std::vector<BYTE> __basic_memory; // lazily allocated 64KB of nostalgia
+inline std::vector<BYTE> __basic_memory; // lazily allocated megabyte of nostalgia
 
 #define DEF_SEG(segment) __basic_segment = (segment);
 
+inline unsigned __BASIC_PHYSICAL(unsigned offset) {
+  return (__basic_segment * 16 + offset) & 0xFFFFF; // real mode, A20 disabled
+}
+
 inline int __PEEK_IMPL(unsigned offset) {
-  if (__basic_segment == 0xA000)
-    return offset < __vga_framebuffer.size() ? __vga_framebuffer[offset] : 0;
-  if (__basic_memory.empty()) __basic_memory.assign(65536, 0);
-  return __basic_memory[offset & 0xFFFF];
+  const auto physical = __BASIC_PHYSICAL(offset);
+  if (__vga_width > 0 && physical >= __vga_video_base && physical - __vga_video_base < __vga_framebuffer.size())
+    return __vga_framebuffer[physical - __vga_video_base];
+  if (__basic_memory.empty()) __basic_memory.assign(0x100000, 0);
+  return __basic_memory[physical];
 }
 
 inline void __POKE_IMPL(unsigned offset, int value) {
-  if (__basic_segment == 0xA000) {
-    if (offset < __vga_framebuffer.size())
-      __vga_framebuffer[offset] = static_cast<BYTE>(value & 0xFF);
+  const auto physical = __BASIC_PHYSICAL(offset);
+  if (__vga_width > 0 && physical >= __vga_video_base && physical - __vga_video_base < __vga_framebuffer.size()) {
+    __vga_framebuffer[physical - __vga_video_base] = static_cast<BYTE>(value & 0xFF);
     return;
   }
-  if (__basic_memory.empty()) __basic_memory.assign(65536, 0);
-  __basic_memory[offset & 0xFFFF] = static_cast<BYTE>(value & 0xFF);
+  if (__basic_memory.empty()) __basic_memory.assign(0x100000, 0);
+  __basic_memory[physical] = static_cast<BYTE>(value & 0xFF);
 }
 
 #define PEEK(offset) __PEEK_IMPL(offset)

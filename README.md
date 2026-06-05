@@ -170,21 +170,41 @@ PALETTE(4, 63, 0, 0)             // real 6-bit DAC values
 FLIP()                           // blit the frame to the terminal
 ```
 
-`SCREEN(7)` gives 160×100 for regular console windows, `GRAPHICS(w, h)` is
-yours to abuse, `SCREEN(0)` returns to text mode. `POINT(x, y)` reads pixels,
-`CLS()` wipes the framebuffer.
+The whole mode zoo is on board, each parking its video window at the
+historically correct segment:
+
+| Mode | Adapter | Resolution | Colours | Video segment |
+|------|---------|-----------|---------|---------------|
+| `SCREEN(1)` | CGA | 320×200 | 4 (cyan/magenta/white, palette 1) | `&HB800` |
+| `SCREEN(2)` | CGA | 640×200 | 2 | `&HB800` |
+| `SCREEN(3)` | Hercules | 720×348 | 2 (green phosphor) | `&HB000` |
+| `SCREEN(7)` | EGA | 320×200 | 16 | `&HA000` |
+| `SCREEN(8)` | EGA | 640×200 | 16 | `&HA000` |
+| `SCREEN(9)` | EGA | 640×350 | 16 | `&HA000` |
+| `SCREEN(12)` | VGA | 640×480 | 16 | `&HA000` |
+| `SCREEN(13)` | VGA | 320×200 | 256 | `&HA000` |
+
+`GRAPHICS(w, h)` is yours to abuse, `SCREEN(0)` returns to text mode.
+`POINT(x, y)` reads pixels, `CLS()` wipes the framebuffer, colours mask to the
+mode's depth like the attribute registers of old.
 
 ### ☢️ PEEK / POKE / DEF SEG
 
-Sixty-four kilobytes of perfectly fake RAM — except segment `&HA000` (spelled
-`0xA000`, C++ has feelings too), which is **memory-mapped onto the live
-framebuffer** exactly like real mode 13h:
+One flat megabyte of perfectly fake RAM with **honest real-mode address
+arithmetic**: physical = segment × 16 + offset, wrapping at 1MB because the
+A20 line is off in this house. `A001:0000`, `A000:0010` and `9FFF:0020` are
+all the same byte — just like grandpa's 8086. The active video mode maps its
+framebuffer at its real segment (`&HA000` VGA/EGA, `&HB800` CGA, `&HB000`
+Hercules — spelled `0xA000` etc., C++ has feelings too), one linear byte per
+pixel:
 
 ```cpp
 SCREEN(13)
 DEF_SEG(0xA000)
 POKE(100 * 320 + 160, 12)        // yes, this draws a pixel. we're sorry. (no we're not)
 PRINT(PEEK(100 * 320 + 160))     // 12
+DEF_SEG(0xA001)
+PRINT(PEEK(100 * 320 + 144))     // still 12 - same physical byte
 ```
 
 ### 🎵 SOUND & PLAY
