@@ -109,4 +109,5 @@ then mirror the change here.
 | Artifact                                             | Produced by          |
 |------------------------------------------------------|----------------------|
 | `ConsoleSnake-win-x64.exe` / `ConsoleSnake-win-x86.exe` | release + nightly |
+| `SecondUnreality-win-x64.exe` (demoscene tribute)    | release + nightly    |
 | `BASIC.h`                                            | release + nightly    |

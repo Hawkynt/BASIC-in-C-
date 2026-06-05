@@ -152,6 +152,15 @@ int LEN(const T & s) {
 #define CDBL(x) static_cast<double>(x)
 #define CSTR(x) std::to_string(x)
 
+// Math corner (it became unavoidable once the graphics got serious)
+#define SIN(x) std::sin(x)
+#define COS(x) std::cos(x)
+#define TAN(x) std::tan(x)
+#define ATN(x) std::atan(x)
+#define SQR(x) std::sqrt(x)
+#define SGN(x) (((x) > 0) - ((x) < 0))
+#define PI 3.14159265358979323846
+
 // String functions - and yes, the $ is part of the identifier. Both MSVC and
 // GCC accept $ in identifiers, so LEFT$ really is called LEFT$. The 80s won.
 // Positions are 1-based like the good lord Kemeny intended; out-of-range
@@ -350,6 +359,8 @@ inline bool __vga_unchained = false;        // mode X/Y/Z: the A000 window is pl
 inline int __vga_plane_mask = 0xF;          // sequencer register 2 (map mask) - which planes POKE writes
 inline int __vga_read_plane = 0;            // graphics controller register 4 (read map select) - which plane PEEK reads
 inline int __vga_bank = 0;                  // SVGA bank: which 64KB slice the A000 window shows
+inline int __vga_pixel_bits = 8;            // 8 (palette), 15, 16 or 24 - truecolor is a VESA headache
+inline int __vga_bytes_per_pixel = 1;       // little-endian bytes per pixel in the framebuffer
 inline unsigned char __vga_palette[256][3]; // 6-bit DAC values, like mother nature intended
 
 inline void __VGA_DEFAULT_PALETTE() {
@@ -399,16 +410,21 @@ inline void __VGA_DEFAULT_PALETTE() {
     __vga_palette[index][0] = __vga_palette[index][1] = __vga_palette[index][2] = 0;
 }
 
-inline void __GRAPHICS_IMPL(int width, int height, int colors = 256, unsigned videoBase = 0xA0000) {
+inline void __GRAPHICS_IMPL(int width, int height, int colors = 256, unsigned videoBase = 0xA0000, int pixelBits = 8) {
   __vga_width = width;
   __vga_height = height;
-  __vga_color_mask = colors - 1;
+  __vga_pixel_bits = pixelBits;
+  __vga_bytes_per_pixel = pixelBits <= 8 ? 1 : pixelBits <= 16 ? 2 : 3;
+  __vga_color_mask = pixelBits == 15 ? 0x7FFF
+                   : pixelBits == 16 ? 0xFFFF
+                   : pixelBits == 24 ? 0xFFFFFF
+                   : colors - 1;
   __vga_video_base = videoBase;
   __vga_unchained = false;
   __vga_plane_mask = 0xF;
   __vga_read_plane = 0;
   __vga_bank = 0;
-  __vga_framebuffer.assign(width > 0 ? static_cast<size_t>(width) * height : 0, 0);
+  __vga_framebuffer.assign(width > 0 ? static_cast<size_t>(width) * height * __vga_bytes_per_pixel : 0, 0);
   __VGA_DEFAULT_PALETTE();
   if (colors == 4) {
     // CGA palette 1, high intensity: the cyan/magenta/white of childhood memories
@@ -450,7 +466,22 @@ inline void __SCREEN_IMPL(int mode) {
     case 0x101: __GRAPHICS_IMPL(640, 480, 256);  break;
     case 0x103: __GRAPHICS_IMPL(800, 600, 256);  break;
     case 0x105: __GRAPHICS_IMPL(1024, 768, 256); break;
-    case 0x107: __GRAPHICS_IMPL(1280, 1024, 256); break; // 24-bit modes left as an exercise for the therapist
+    case 0x107: __GRAPHICS_IMPL(1280, 1024, 256); break;
+    // ...and the truecolor headache tier: 15/16/24bpp, little-endian pixels,
+    // multiple bytes per pixel through the same 64KB window. Pure migraine,
+    // faithfully reproduced. Compose colours with RGB15/RGB16/RGB24.
+    case 0x10D: __GRAPHICS_IMPL(320, 200, 256, 0xA0000, 15); break;
+    case 0x10E: __GRAPHICS_IMPL(320, 200, 256, 0xA0000, 16); break;
+    case 0x10F: __GRAPHICS_IMPL(320, 200, 256, 0xA0000, 24); break;
+    case 0x110: __GRAPHICS_IMPL(640, 480, 256, 0xA0000, 15); break;
+    case 0x111: __GRAPHICS_IMPL(640, 480, 256, 0xA0000, 16); break;
+    case 0x112: __GRAPHICS_IMPL(640, 480, 256, 0xA0000, 24); break;
+    case 0x113: __GRAPHICS_IMPL(800, 600, 256, 0xA0000, 15); break;
+    case 0x114: __GRAPHICS_IMPL(800, 600, 256, 0xA0000, 16); break;
+    case 0x115: __GRAPHICS_IMPL(800, 600, 256, 0xA0000, 24); break;
+    case 0x116: __GRAPHICS_IMPL(1024, 768, 256, 0xA0000, 15); break;
+    case 0x117: __GRAPHICS_IMPL(1024, 768, 256, 0xA0000, 16); break;
+    case 0x118: __GRAPHICS_IMPL(1024, 768, 256, 0xA0000, 24); break;
     default: __GRAPHICS_IMPL(0, 0); std::cout << "\x1b[?25h" << std::flush; break; // SCREEN(0): back to text
   }
 }
@@ -474,6 +505,11 @@ inline void __MODE_UNCHAINED(int width, int height) {
 #define SCREEN_HEIGHT() (__vga_height)
 #define SCREEN_COLORS() (__vga_color_mask + 1)
 
+// truecolor pixel composers (RGB itself is taken - wingdi got there first)
+#define RGB15(r, g, b) ((((r) >> 3) << 10) | (((g) >> 3) << 5) | ((b) >> 3))
+#define RGB16(r, g, b) ((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3))
+#define RGB24(r, g, b) (((r) << 16) | ((g) << 8) | (b))
+
 // CGA palette select, like COLOR bg, p in SCREEN 1 - palette 0 is the muddy
 // green/red/brown one, palette 1 the cyan/magenta/white of childhood memories
 inline void __CGA_PALETTE_IMPL(int palette) {
@@ -492,12 +528,19 @@ inline void __CGA_PALETTE_IMPL(int palette) {
 
 inline void __PSET_IMPL(int x, int y, int color) {
   if (x < 0 || y < 0 || x >= __vga_width || y >= __vga_height) return;
-  __vga_framebuffer[static_cast<size_t>(y) * __vga_width + x] = static_cast<BYTE>(color & __vga_color_mask);
+  auto value = color & __vga_color_mask;
+  const auto base = (static_cast<size_t>(y) * __vga_width + x) * __vga_bytes_per_pixel;
+  for (auto part = 0; part < __vga_bytes_per_pixel; ++part, value >>= 8)
+    __vga_framebuffer[base + part] = static_cast<BYTE>(value & 0xFF); // little-endian, like the bus
 }
 
 inline int __POINT_IMPL(int x, int y) {
   if (x < 0 || y < 0 || x >= __vga_width || y >= __vga_height) return -1;
-  return __vga_framebuffer[static_cast<size_t>(y) * __vga_width + x];
+  const auto base = (static_cast<size_t>(y) * __vga_width + x) * __vga_bytes_per_pixel;
+  auto value = 0;
+  for (auto part = __vga_bytes_per_pixel - 1; part >= 0; --part)
+    value = (value << 8) | __vga_framebuffer[base + part];
+  return value;
 }
 
 #define PSET(x, y, color) __PSET_IMPL(x, y, color);
@@ -573,6 +616,26 @@ inline void __PAINT_IMPL(int x, int y, int color) {
 }
 #define PAINT(x, y, color) __PAINT_IMPL(x, y, color);
 
+// decodes a raw pixel value to 8-bit RGB according to the active format
+inline void __VGA_RGB(int pixel, int & r, int & g, int & b) {
+  switch (__vga_pixel_bits) {
+    case 15:
+      r = (pixel >> 10 & 31) * 255 / 31; g = (pixel >> 5 & 31) * 255 / 31; b = (pixel & 31) * 255 / 31;
+      break;
+    case 16:
+      r = (pixel >> 11 & 31) * 255 / 31; g = (pixel >> 5 & 63) * 255 / 63; b = (pixel & 31) * 255 / 31;
+      break;
+    case 24:
+      r = pixel >> 16 & 255; g = pixel >> 8 & 255; b = pixel & 255;
+      break;
+    default:
+      r = __vga_palette[pixel & 255][0] * 255 / 63;
+      g = __vga_palette[pixel & 255][1] * 255 / 63;
+      b = __vga_palette[pixel & 255][2] * 255 / 63;
+      break;
+  }
+}
+
 // assembles the ANSI frame: ESC[H, then per cell one upper-half-block whose
 // foreground is the top pixel and background the bottom pixel
 inline STRING __VGA_RENDER() {
@@ -584,15 +647,19 @@ inline STRING __VGA_RENDER() {
   for (auto y = 0; y < __vga_height; y += 2) {
     auto lastTop = -1, lastBottom = -1;
     for (auto x = 0; x < __vga_width; ++x) {
-      const int topPixel = __vga_framebuffer[static_cast<size_t>(y) * __vga_width + x];
-      const int bottomPixel = y + 1 < __vga_height ? __vga_framebuffer[static_cast<size_t>(y + 1) * __vga_width + x] : 0;
+      const auto topPixel = __POINT_IMPL(x, y);
+      const auto bottomPixel = y + 1 < __vga_height ? __POINT_IMPL(x, y + 1) : 0;
       if (topPixel != lastTop) {
-        std::snprintf(code, sizeof(code), "\x1b[38;2;%d;%d;%dm", __vga_palette[topPixel][0] * 255 / 63, __vga_palette[topPixel][1] * 255 / 63, __vga_palette[topPixel][2] * 255 / 63);
+        int r, g, b;
+        __VGA_RGB(topPixel, r, g, b);
+        std::snprintf(code, sizeof(code), "\x1b[38;2;%d;%d;%dm", r, g, b);
         frame += code;
         lastTop = topPixel;
       }
       if (bottomPixel != lastBottom) {
-        std::snprintf(code, sizeof(code), "\x1b[48;2;%d;%d;%dm", __vga_palette[bottomPixel][0] * 255 / 63, __vga_palette[bottomPixel][1] * 255 / 63, __vga_palette[bottomPixel][2] * 255 / 63);
+        int r, g, b;
+        __VGA_RGB(bottomPixel, r, g, b);
+        std::snprintf(code, sizeof(code), "\x1b[48;2;%d;%d;%dm", r, g, b);
         frame += code;
         lastBottom = bottomPixel;
       }
@@ -691,15 +758,35 @@ inline void __POKE_IMPL(unsigned offset, int value) {
 //            index 0Eh = Trident bank register, XOR 2 quirk faithfully
 //            reproduced because somebody out there still has nightmares
 //   3CE/3CF  graphics controller: index 4 = read map select
-//   3DA      input status: the retrace bit toggles every read, making this
-//            the world's most cooperative vertical retrace
+//   3DA      input status, with REAL timing: a rock-solid fake 60Hz frame
+//            with 262 fake scanlines. Bit 3 = vertical retrace (last ~6% of
+//            each frame), bit 0 = display disabled (any blanking, so it
+//            flickers at scanline speed). WAIT(&H3DA, 8) waits for actual
+//            vsync; the not-retrace-then-retrace two-step works too.
 // Every other port is a junk drawer: INP returns what OUT last shouted at it.
 // ===========================================================================
 inline int __vga_dac_write_index = 0, __vga_dac_write_channel = 0;
 inline int __vga_dac_read_index = 0, __vga_dac_read_channel = 0;
 inline int __vga_sequencer_index = 0, __vga_gc_index = 0;
-inline int __vga_retrace_status = 0;
 inline std::map<int, BYTE> __basic_ports;
+
+inline int __VGA_STATUS() {
+  static const double frequency = [] {
+    LARGE_INTEGER f;
+    QueryPerformanceFrequency(&f);
+    return static_cast<double>(f.QuadPart);
+  }();
+  LARGE_INTEGER now;
+  QueryPerformanceCounter(&now);
+  const auto frames = now.QuadPart / frequency * 60.0;     // the fake 60Hz crystal
+  const auto framePhase = frames - std::floor(frames);
+  const auto lines = framePhase * 262.0;                   // and its 262 fake scanlines
+  const auto linePhase = lines - std::floor(lines);
+  auto status = 0;
+  if (framePhase >= 0.94) status |= 8;                     // vertical retrace, ~1ms per frame
+  if (framePhase >= 0.94 || linePhase >= 0.8) status |= 1; // display disabled during any blanking
+  return status;
+}
 
 inline void __OUT_IMPL(int port, int value) {
   value &= 0xFF;
@@ -745,7 +832,7 @@ inline int __INP_IMPL(int port) {
     case 0x3CF:
       if (__vga_gc_index == 4) return __vga_read_plane;
       return __basic_ports.count((0x3CF << 8) | __vga_gc_index) ? __basic_ports[(0x3CF << 8) | __vga_gc_index] : 0;
-    case 0x3DA: return __vga_retrace_status ^= 8;
+    case 0x3DA: return __VGA_STATUS();
     default: return __basic_ports.count(port) ? __basic_ports[port] : 0;
   }
 }
@@ -766,7 +853,7 @@ inline int __INP_IMPL(int port) {
 struct __BASIC_SPRITE {
   int width = 0;
   int height = 0;
-  std::vector<BYTE> pixels;
+  std::vector<int> pixels; // int, because truecolor sprites are a thing now
 };
 #define SPRITE __BASIC_SPRITE
 #define SPRITE_WIDTH(sprite) ((sprite).width)
@@ -781,7 +868,7 @@ inline void __GET_SPRITE_IMPL(int x1, int y1, int x2, int y2, SPRITE & sprite) {
   for (auto y = 0; y < sprite.height; ++y)
     for (auto x = 0; x < sprite.width; ++x) {
       const auto pixel = __POINT_IMPL(x1 + x, y1 + y);
-      sprite.pixels[static_cast<size_t>(y) * sprite.width + x] = static_cast<BYTE>(pixel < 0 ? 0 : pixel);
+      sprite.pixels[static_cast<size_t>(y) * sprite.width + x] = pixel < 0 ? 0 : pixel;
     }
 }
 

@@ -46,12 +46,17 @@ jobs:
           msbuild ConsoleSnake/ConsoleSnake.sln /m /p:Configuration=Release /p:Platform=x64
           msbuild ConsoleSnake/ConsoleSnake.sln /m /p:Configuration=Release /p:Platform=x86
 
+      - name: Build demoscene tribute
+        shell: bash
+        run: cl -nologo -EHsc -std:c++17 -O2 Demos/SecondUnreality.cpp -Fe:SecondUnreality.exe
+
       - name: Collect artifacts
         shell: bash
         run: |
           mkdir -p dist
           cp ConsoleSnake/bin/x64/Release/ConsoleSnake.exe   dist/ConsoleSnake-win-x64.exe
           cp ConsoleSnake/bin/Win32/Release/ConsoleSnake.exe dist/ConsoleSnake-win-x86.exe
+          cp SecondUnreality.exe dist/SecondUnreality-win-x64.exe
           cp BASIC.h dist/BASIC.h
 
       - uses: actions/upload-artifact@v4

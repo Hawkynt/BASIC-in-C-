@@ -156,10 +156,33 @@ FUNCTION(main() AS INTEGER)
   check(INP(0x3C9) == 10 AND INP(0x3C9) == 20 AND INP(0x3C9) == 30, "INP 3C7/3C9 reads a DAC entry back");
   check(INP(0x3C9) == 1, "DAC read index auto-increments");
 
-  LET(retraceA = INP(0x3DA) AND 8)
-  LET(retraceB = INP(0x3DA) AND 8)
-  check(retraceA != retraceB, "3DA retrace bit toggles every read");
-  WAIT(0x3DA, 8)                               // must terminate - the world's most cooperative retrace
+  // 3DA carries real (fake) timing: a 60Hz frame with 262 scanlines. Bit 3
+  // pulses during vertical retrace, bit 0 during any blanking.
+  LET(sawRetrace = FALSE)
+  LET(sawPicture = FALSE)
+  LET(patience = TIMER() + 0.5f)
+  DO
+    IF((INP(0x3DA) AND 8) != 0) THEN
+      SET(sawRetrace = TRUE)
+    ELSE
+      SET(sawPicture = TRUE)
+    ENDIF
+  LOOP_UNTIL((sawRetrace AND sawPicture) OR TIMER() > patience)
+  check(sawRetrace AND sawPicture, "the vertical retrace pulses at 60Hz");
+
+  LET(sawBlank = FALSE)
+  LET(sawActive = FALSE)
+  LET(morePatience = TIMER() + 0.5f)
+  DO
+    IF((INP(0x3DA) AND 1) != 0) THEN
+      SET(sawBlank = TRUE)
+    ELSE
+      SET(sawActive = TRUE)
+    ENDIF
+  LOOP_UNTIL((sawBlank AND sawActive) OR TIMER() > morePatience)
+  check(sawBlank AND sawActive, "the horizontal blank flickers at scanline speed");
+
+  WAIT(0x3DA, 8)                               // must terminate within a frame
   check(TRUE, "WAIT for vertical retrace returns");
 
   OUT(0x123, 77)
@@ -208,6 +231,41 @@ FUNCTION(main() AS INTEGER)
   check(SCREEN_WIDTH() == 800 AND SCREEN_HEIGHT() == 600, "VESA 103h is 800x600");
   SCREEN(0x105)
   check(SCREEN_WIDTH() == 1024 AND SCREEN_HEIGHT() == 768, "VESA 105h is 1024x768");
+
+  // ----- truecolor: the 15/16/24bpp headache, faithfully reproduced -------------------------------------------------
+  SCREEN(0x10E)
+  check(SCREEN_WIDTH() == 320 AND SCREEN_HEIGHT() == 200 AND SCREEN_COLORS() == 65536, "VESA 10Eh is 320x200 in 65536 colours");
+  PSET(0, 0, RGB16(255, 0, 0))
+  check(POINT(0, 0) == 0xF800, "16-bit red is F800");
+  check(RGB16(255, 255, 255) == 0xFFFF, "16-bit white fills every bit");
+  DEF_SEG(0xA000)
+  check(PEEK(1) == 0xF8 AND PEEK(0) == 0x00, "pixels are little-endian bytes - the real headache");
+  POKE(0, 0x1F)                                // low byte: maximum blue
+  check(POINT(0, 0) == 0xF81F, "byte pokes compose with the high byte");
+  VESA_BANK(1)
+  POKE(0, 0xAA)                                // byte 65536 = low byte of pixel 32768 = (128, 102)
+  check(POINT(128, 102) == 0xAA, "banked byte pokes hit the right truecolor pixel");
+  VESA_BANK(0)
+
+  LET(frame16 = __VGA_RENDER())
+  check(TALLY(frame16, "\n") == 100, "truecolor frames render");
+
+  SCREEN(0x10D)
+  check(SCREEN_COLORS() == 32768, "VESA 10Dh is 15-bit");
+  PSET(0, 0, RGB15(255, 255, 255))
+  check(POINT(0, 0) == 0x7FFF, "15-bit white is 7FFF");
+
+  SCREEN(0x112)
+  check(SCREEN_WIDTH() == 640 AND SCREEN_HEIGHT() == 480 AND SCREEN_COLORS() == 16777216, "VESA 112h is 640x480 in 16.7M colours");
+  PSET(0, 0, RGB24(10, 20, 30))
+  check(POINT(0, 0) == 0x0A141E, "24-bit pixels read back whole");
+  DEF_SEG(0xA000)
+  check(PEEK(0) == 30 AND PEEK(1) == 20 AND PEEK(2) == 10, "24-bit little-endian byte order");
+
+  DIM(trueSprite AS SPRITE)
+  GET_SPRITE(0, 0, 0, 0, trueSprite)
+  PUT_SPRITE(5, 5, trueSprite, PSET)
+  check(POINT(5, 5) == 0x0A141E, "sprites carry truecolor");
 
   // ----- CGA palette select ---------------------------------------------------------------------------------------------
   SCREEN(1)

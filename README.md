@@ -216,9 +216,14 @@ OUT(0x3C8, 32)                   // DAC write index...
 OUT(0x3C9, 63) OUT(0x3C9, 0) OUT(0x3C9, 0)   // ...three writes, auto-increment: palette animation works
 OUT(0x3C7, 32)                   // DAC read index
 PRINT(INP(0x3C9))                // 63 - read it right back
-WAIT(0x3DA, 8)                   // wait for vertical retrace (the world's most cooperative retrace:
-                                 // the bit toggles every read, so your demo never hangs)
+WAIT(0x3DA, 8)                   // wait for the REAL (fake) vertical retrace
 ```
+
+`3DA` carries honest timing: a rock-solid fake 60Hz frame with 262 fake
+scanlines. Bit 3 pulses during vertical retrace (~1ms per frame), bit 0 goes
+high during *any* blanking — so it flickers at scanline speed, exactly like
+the status register you misread in 1994. The classic
+wait-for-not-retrace-then-wait-for-retrace two-step works verbatim.
 
 Every other port is a junk drawer: `INP` returns whatever `OUT` last shouted at it.
 
@@ -253,6 +258,23 @@ OUT(0x3C4, 0x0E)                 // or do it the Trident way:
 OUT(0x3C5, 3)                    // bank = 3 XOR 2 = 1. the famous quirk, faithfully reproduced,
                                  // because somebody out there still has nightmares
 ```
+
+And for the **real headache tier**, truecolor: `SCREEN(0x10D/0x10E/0x10F)`
+(320×200), `0x110–0x112` (640×480), `0x113–0x115` (800×600), `0x116–0x118`
+(1024×768) in 15/16/24 bits per pixel. Pixels are **little-endian multi-byte**
+through the same banked window, exactly as miserable as you remember:
+
+```cpp
+SCREEN(0x10E)                    // 320x200, 65536 colours
+PSET(0, 0, RGB16(255, 0, 0))     // F800 - five reds, six greens, five blues
+DEF_SEG(0xA000)
+PRINT(PEEK(0))                   // 0x00 - the LOW byte. of course it's the low byte.
+PRINT(PEEK(1))                   // 0xF8
+```
+
+`RGB15`/`RGB16`/`RGB24` compose pixels (`RGB` itself was taken — wingdi got
+there first). The math corner (`SIN`/`COS`/`TAN`/`ATN`/`SQR`/`SGN`/`PI`)
+arrived in the same shipment, because rotozooms don't write themselves.
 
 ### 👾 GET / PUT sprites
 
@@ -359,6 +381,18 @@ This entire monstrosity operates on a volatile cocktail of macro abuse, template
 * Porting old BASIC algorithms to C++ with minimal effort
 * Writing **console games** like Snake, Nibbles, etc.
 * Because you can. And shouldn't. But still can.
+
+---
+
+## 🪩 Example: SECOND UNREALITY
+
+`Demos/SecondUnreality.cpp` is a demoscene tribute written entirely in the
+dialect — copper bars animated purely through `OUT 3C8/3C9` DAC writes, a
+three-sine plasma, shadebobs burning into an ember palette, and a rotozoomer
+in 16-bit truecolor, all vsynced on `INP(&H3DA)`. It's all BASIC now, like
+the Kukoo2 Pleasure Access intro promised, with a Second Reality chaser.
+Press any key to advance the universe; greetings to everyone who ever owned
+a Gravis Ultrasound.
 
 ---
 
