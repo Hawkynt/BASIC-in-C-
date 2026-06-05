@@ -70,8 +70,7 @@ jobs:
       # The demoscene tribute is compile-only: CI runners don't deserve plasma.
       - name: Build demo (MSVC, compile-only)
         if: runner.os == 'Windows'
-        shell: bash
-        run: cl -nologo -EHsc -Zc:preprocessor -std:c++17 -W4 -O2 Demos/SecondUnreality.cpp -Fe:demo.exe
+        run: msbuild Demos/SecondUnreality.sln /m /p:Configuration=Release /p:Platform=x64
 
       - name: Build demo (native, compile-only)
         if: runner.os != 'Windows'
