@@ -1119,7 +1119,16 @@ inline void __COLOR_IMPL(int fg, int bg) {
 #define INPUT(var) std::cin >> var;
 
 #ifdef _WIN32
-#define INKEY() (_kbhit() ? _getch() : 0)
+// _getch reports extended keys (arrows & friends) as TWO codes: a 0 or 224
+// prefix, then the scan code. Swallow the pair atomically so one key press
+// is one INKEY result - not a ghost prefix followed by the real key.
+inline int __INKEY_IMPL() {
+  if (!_kbhit()) return 0;
+  const auto key = _getch();
+  if (key != 0 && key != 224) return key;
+  return _kbhit() ? _getch() : 0;
+}
+#define INKEY() __INKEY_IMPL()
 #else
 // raw, non-blocking, and it translates ANSI arrow sequences to the DOS scan
 // codes (72/80/77/75) so ConsoleSnake steers the same on every OS
