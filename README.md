@@ -3,6 +3,7 @@
 [![License](https://img.shields.io/github/license/Hawkynt/BASIC-in-C-)](https://github.com/Hawkynt/BASIC-in-C-/blob/main/LICENSE)
 [![Language](https://img.shields.io/github/languages/top/Hawkynt/BASIC-in-C-?color=8957D5)](https://github.com/Hawkynt/BASIC-in-C-)
 
+[![CI](https://github.com/Hawkynt/BASIC-in-C-/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Hawkynt/BASIC-in-C-/actions/workflows/ci.yml)
 ![Last Commit](https://img.shields.io/github/last-commit/Hawkynt/BASIC-in-C-?branch=main)
 ![Activity](https://img.shields.io/github/commit-activity/m/Hawkynt/BASIC-in-C-)
 
@@ -11,6 +12,10 @@
 [![Issues](https://img.shields.io/github/issues/Hawkynt/BASIC-in-C-)](https://github.com/Hawkynt/BASIC-in-C-/issues)
 ![Code Size](https://img.shields.io/github/languages/code-size/Hawkynt/BASIC-in-C-?color=4CAF50)
 ![Repo Size](https://img.shields.io/github/repo-size/Hawkynt/BASIC-in-C-?color=FF9800)
+
+[![Release](https://img.shields.io/github/v/release/Hawkynt/BASIC-in-C-?sort=semver)](https://github.com/Hawkynt/BASIC-in-C-/releases/latest)
+[![Nightly](https://img.shields.io/github/v/release/Hawkynt/BASIC-in-C-?include_prereleases=true&sort=date&label=nightly&color=FF9800)](https://github.com/Hawkynt/BASIC-in-C-/releases)
+[![Downloads](https://img.shields.io/github/downloads/Hawkynt/BASIC-in-C-/total)](https://github.com/Hawkynt/BASIC-in-C-/releases)
 
 > The header your C++ professor warned you about.
 
@@ -148,6 +153,25 @@ Yes, I made this compile.
 Yes, it moves a snake across the console.
 No, it’s not okay. 
 Yes, it’s beautiful.
+
+---
+
+## 🔧 Building
+
+It's a single header — `#include "BASIC.h"` and go. The ConsoleSnake demo builds with:
+
+```sh
+# MSVC (Visual Studio 2022)
+msbuild ConsoleSnake/ConsoleSnake.sln /p:Configuration=Release /p:Platform=x64
+
+# mingw-w64 (also cross-compiles from Linux)
+x86_64-w64-mingw32-g++ -std=c++17 -static -o ConsoleSnake.exe ConsoleSnake/ConsoleSnake.cpp
+```
+
+CI builds both on every push, runs the macro smoke suite (`tests/Smoke.cpp`),
+publishes a `nightly-yyyyMMdd` prerelease on every green main build, and a
+manual dispatch of the Release workflow cuts a dated `vyyyyMMdd` release —
+binaries for both architectures plus the header itself.
 
 ---
 
