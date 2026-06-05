@@ -66,27 +66,27 @@ FUNCTION(main() AS INTEGER)
 
   // ----- the loop zoo (basics; the full safari lives in Loops.cpp) ----------
   LET(sum = 0)
-  FOR(i, 1, 5)
+  FOR(i, 1 TO 5)
     SET(sum = sum + i)
   NEXT
   check(sum == 15, "FOR/NEXT");
 
   LET(stepSum = 0)
-  FOR_STEP(i, 10, 1, -3)                      // 10, 7, 4, 1
+  FOR(i, 10 TO 1 STEP -3)                      // 10, 7, 4, 1
     SET(stepSum = stepSum + i)
   NEXT
   check(stepSum == 22, "FOR_STEP with negative step");
 
   LET(cells = 0)
-  FOR(row, 1, 3)
-    FOR(col, 1, 4)
+  FOR(row, 1 TO 3)
+    FOR(col, 1 TO 4)
       SET(cells = cells + 1)
     NEXT
   NEXT
   check(cells == 12, "nested FOR");
 
   LET(evens = 0)
-  FOR(i, 1, 10)
+  FOR(i, 1 TO 10)
     IF(i == 7) THEN
       BREAK;
     ENDIF

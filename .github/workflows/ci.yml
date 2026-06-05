@@ -71,7 +71,7 @@ jobs:
       - name: Build demo (MSVC, compile-only)
         if: runner.os == 'Windows'
         shell: bash
-        run: cl -nologo -EHsc -std:c++17 -W4 -O2 Demos/SecondUnreality.cpp -Fe:demo.exe
+        run: cl -nologo -EHsc -Zc:preprocessor -std:c++17 -W4 -O2 Demos/SecondUnreality.cpp -Fe:demo.exe
 
       - name: Build demo (native, compile-only)
         if: runner.os != 'Windows'
@@ -87,7 +87,7 @@ jobs:
           for f in tests/*.cpp; do
             name=$(basename "$f" .cpp)
             echo "=== $name ==="
-            cl -nologo -EHsc -std:c++17 -W4 "$f" -Fe:"$name.exe"
+            cl -nologo -EHsc -Zc:preprocessor -std:c++17 -W4 "$f" -Fe:"$name.exe"
             "./$name.exe"
           done
 

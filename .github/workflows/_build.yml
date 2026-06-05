@@ -70,8 +70,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cl -nologo -EHsc -std:c++17 -O2 ConsoleSnake/ConsoleSnake.cpp -Fe:dist/ConsoleSnake-${{ matrix.target }}.exe
-          cl -nologo -EHsc -std:c++17 -O2 Demos/SecondUnreality.cpp -Fe:dist/SecondUnreality-${{ matrix.target }}.exe
+          cl -nologo -EHsc -Zc:preprocessor -std:c++17 -O2 ConsoleSnake/ConsoleSnake.cpp -Fe:dist/ConsoleSnake-${{ matrix.target }}.exe
+          cl -nologo -EHsc -Zc:preprocessor -std:c++17 -O2 Demos/SecondUnreality.cpp -Fe:dist/SecondUnreality-${{ matrix.target }}.exe
 
       - name: Build (linux gcc)
         if: runner.os == 'Linux'

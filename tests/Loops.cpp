@@ -88,7 +88,7 @@ FUNCTION(main() AS INTEGER)
 
   // ----- EXIT_FOR / ITERATE_FOR -------------------------------------------------------------------
   LET(visited = 0)
-  FOR(k, 1, 100)
+  FOR(k, 1 TO 100)
     IF(k == 4) THEN
       EXIT_FOR
     ENDIF
@@ -97,13 +97,38 @@ FUNCTION(main() AS INTEGER)
   check(visited == 3, "EXIT_FOR");
 
   LET(kept = 0)
-  FOR(k, 1, 9)
+  FOR(k, 1 TO 9)
     IF((k MOD 3) != 0) THEN
       ITERATE_FOR
     ENDIF
     INCR(kept)
   NEXT
   check(kept == 3, "ITERATE_FOR keeps only multiples of three");
+
+  // ----- FOR spellings: real TO/STEP keywords, legacy commas still honoured ---------------------------
+  LET(viaTo = 0)
+  FOR(n1, 1 TO 3)
+    INCR(viaTo)
+  NEXT
+  check(viaTo == 3, "FOR with a real TO");
+
+  LET(viaStep = 0)
+  FOR(n2, 8 TO 2 STEP -2)                      // 8, 6, 4, 2
+    INCR(viaStep)
+  NEXT
+  check(viaStep == 4, "FOR with TO and STEP");
+
+  LET(viaCommas = 0)
+  FOR(n3, 1, 3)
+    INCR(viaCommas)
+  NEXT
+  check(viaCommas == viaTo, "the comma spelling still works - TO is a comma in a trench coat");
+
+  LET(viaForStep = 0)
+  FOR_STEP(n4, 8, 2, -2)
+    INCR(viaForStep)
+  NEXT
+  check(viaForStep == viaStep, "FOR_STEP remains as an alias");
 
   // ----- EXIT_WHILE -----------------------------------------------------------------------------------
   LET(guard = 0)

@@ -107,9 +107,17 @@ inline void __BASIC_SLEEP(int milliseconds) {
 #define LOOP }
 #define LOOP_FOREVER } while(true);
 
-// For-loops
-#define FOR(var, start, end) { auto UNIQUE(__end) = (end); for (auto var = start; var <= UNIQUE(__end); ++var) {
-#define FOR_STEP(var, start, end, step) { auto UNIQUE(__end) = (end); auto UNIQUE(__step) = (step); for (auto var = start; UNIQUE(__step) > 0 ? var <= UNIQUE(__end) : var >= UNIQUE(__end); var += UNIQUE(__step)) {
+// For-loops with a real TO: FOR(i, 1 TO 5) and FOR(i, 10 TO 1 STEP -3).
+// TO and STEP are commas in trench coats; the dispatcher below counts the
+// arguments they leave behind and picks the right loop. The plain comma
+// spellings FOR(i, 1, 5) and FOR_STEP(i, 10, 1, -3) keep working.
+#define TO ,
+#define STEP ,
+#define __FOR_IMPL(var, start, end) { auto UNIQUE(__end) = (end); for (auto var = start; var <= UNIQUE(__end); ++var) {
+#define __FOR_STEP_IMPL(var, start, end, step) { auto UNIQUE(__end) = (end); auto UNIQUE(__step) = (step); for (auto var = start; UNIQUE(__step) > 0 ? var <= UNIQUE(__end) : var >= UNIQUE(__end); var += UNIQUE(__step)) {
+#define __FOR_PICK(a, b, c, d, chosen, ...) chosen
+#define FOR(...) EXPAND(__FOR_PICK(__VA_ARGS__, __FOR_STEP_IMPL, __FOR_IMPL, ~)(__VA_ARGS__))
+#define FOR_STEP(...) EXPAND(__FOR_STEP_IMPL(__VA_ARGS__))
 #define NEXT } }
 
 // FOR EACH item IN container ... NEXT (VB junior joins the party)
@@ -698,10 +706,27 @@ inline bool __TERMINAL_SIZE(int & columns, int & rows) {
   return columns > 0 && rows > 0;
 }
 
+// box-filter sample: average RGB of the pixel region [x1,x2) x [y1,y2) on
+// the visual page, packed as 0xRRGGBB - so downscaled starfields dim
+// gracefully instead of dropping their stars
+inline int __VGA_SAMPLE(int x1, int x2, int y1, int y2) {
+  if (x2 <= x1) x2 = x1 + 1;
+  if (y2 <= y1) y2 = y1 + 1;
+  long long sumR = 0, sumG = 0, sumB = 0;
+  for (auto y = y1; y < y2; ++y)
+    for (auto x = x1; x < x2; ++x) {
+      int r, g, b;
+      __VGA_RGB(__VGA_PIXEL(__vga_visual_page, x, y), r, g, b);
+      sumR += r; sumG += g; sumB += b;
+    }
+  const auto count = static_cast<long long>(x2 - x1) * (y2 - y1);
+  return static_cast<int>((sumR / count) << 16 | (sumG / count) << 8 | (sumB / count));
+}
+
 // assembles the ANSI frame: ESC[H, then per cell one upper-half-block whose
-// foreground is the top pixel and background the bottom pixel. When the
-// frame is larger than the given bounds it is downscaled uniformly
-// (nearest neighbour, aspect kept - one cell is two pixels tall).
+// foreground is the top half-pixel-region and background the bottom one.
+// When the frame is larger than the given bounds it is downscaled uniformly
+// (box filter, aspect kept - one cell is two pixels tall).
 inline STRING __VGA_RENDER_INTO(int maxColumns, int maxRows) {
   STRING frame;
   if (__vga_width <= 0) return frame;
@@ -719,27 +744,26 @@ inline STRING __VGA_RENDER_INTO(int maxColumns, int maxRows) {
   frame.reserve(static_cast<size_t>(outColumns) * outRows * 8);
   frame += "\x1b[H";
   char code[32];
+  const auto halves = outRows * 2;
   for (auto cy = 0; cy < outRows; ++cy) {
     auto lastTop = -1, lastBottom = -1;
-    const auto topY = static_cast<int>(static_cast<long long>(cy) * 2 * __vga_height / (outRows * 2));
-    const auto bottomY = static_cast<int>((static_cast<long long>(cy) * 2 + 1) * __vga_height / (outRows * 2));
+    const auto topY1 = static_cast<int>(static_cast<long long>(cy) * 2 * __vga_height / halves);
+    const auto topY2 = static_cast<int>((static_cast<long long>(cy) * 2 + 1) * __vga_height / halves);
+    const auto bottomY2 = static_cast<int>((static_cast<long long>(cy) * 2 + 2) * __vga_height / halves);
     for (auto cx = 0; cx < outColumns; ++cx) {
-      const auto x = static_cast<int>(static_cast<long long>(cx) * __vga_width / outColumns);
-      const auto topPixel = __VGA_PIXEL(__vga_visual_page, x, topY);
-      const auto bottomPixel = bottomY < __vga_height ? __VGA_PIXEL(__vga_visual_page, x, bottomY) : 0;
-      if (topPixel != lastTop) {
-        int r, g, b;
-        __VGA_RGB(topPixel, r, g, b);
-        std::snprintf(code, sizeof(code), "\x1b[38;2;%d;%d;%dm", r, g, b);
+      const auto x1 = static_cast<int>(static_cast<long long>(cx) * __vga_width / outColumns);
+      const auto x2 = static_cast<int>((static_cast<long long>(cx) + 1) * __vga_width / outColumns);
+      const auto top = __VGA_SAMPLE(x1, x2, topY1, topY2);
+      const auto bottom = topY2 < __vga_height ? __VGA_SAMPLE(x1, x2, topY2, bottomY2 <= __vga_height ? bottomY2 : __vga_height) : 0;
+      if (top != lastTop) {
+        std::snprintf(code, sizeof(code), "\x1b[38;2;%d;%d;%dm", top >> 16 & 255, top >> 8 & 255, top & 255);
         frame += code;
-        lastTop = topPixel;
+        lastTop = top;
       }
-      if (bottomPixel != lastBottom) {
-        int r, g, b;
-        __VGA_RGB(bottomPixel, r, g, b);
-        std::snprintf(code, sizeof(code), "\x1b[48;2;%d;%d;%dm", r, g, b);
+      if (bottom != lastBottom) {
+        std::snprintf(code, sizeof(code), "\x1b[48;2;%d;%d;%dm", bottom >> 16 & 255, bottom >> 8 & 255, bottom & 255);
         frame += code;
-        lastBottom = bottomPixel;
+        lastBottom = bottom;
       }
       frame += "\xE2\x96\x80"; // the mighty upper half block
     }
