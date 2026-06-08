@@ -13,7 +13,7 @@
 ![Code Size](https://img.shields.io/github/languages/code-size/Hawkynt/BASIC-in-C-?color=4CAF50)
 ![Repo Size](https://img.shields.io/github/repo-size/Hawkynt/BASIC-in-C-?color=FF9800)
 
-[![Release](https://img.shields.io/github/v/release/Hawkynt/BASIC-in-C-?sort=semver)](https://github.com/Hawkynt/BASIC-in-C-/releases/latest)
+[![Release](https://img.shields.io/github/v/release/Hawkynt/BASIC-in-C-)](https://github.com/Hawkynt/BASIC-in-C-/releases/latest)
 [![Nightly](https://img.shields.io/github/v/release/Hawkynt/BASIC-in-C-?include_prereleases&sort=date&label=nightly&color=FF9800)](https://github.com/Hawkynt/BASIC-in-C-/releases)
 [![Downloads](https://img.shields.io/github/downloads/Hawkynt/BASIC-in-C-/total)](https://github.com/Hawkynt/BASIC-in-C-/releases)
 
