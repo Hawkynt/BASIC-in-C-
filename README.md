@@ -14,7 +14,7 @@
 ![Repo Size](https://img.shields.io/github/repo-size/Hawkynt/BASIC-in-C-?color=FF9800)
 
 [![Release](https://img.shields.io/github/v/release/Hawkynt/BASIC-in-C-?sort=semver)](https://github.com/Hawkynt/BASIC-in-C-/releases/latest)
-[![Nightly](https://img.shields.io/github/v/release/Hawkynt/BASIC-in-C-?include_prereleases=true&sort=date&label=nightly&color=FF9800)](https://github.com/Hawkynt/BASIC-in-C-/releases)
+[![Nightly](https://img.shields.io/github/v/release/Hawkynt/BASIC-in-C-?include_prereleases&sort=date&label=nightly&color=FF9800)](https://github.com/Hawkynt/BASIC-in-C-/releases)
 [![Downloads](https://img.shields.io/github/downloads/Hawkynt/BASIC-in-C-/total)](https://github.com/Hawkynt/BASIC-in-C-/releases)
 
 > The header your C++ professor warned you about — classic line-numbered BASIC (GOTO, GOSUB, DATA, FOR…TO/STEP, PRINT) embedded straight into modern C++ with a single `#include "BASIC.h"`, complete with an eleven-part text-mode demo and a snake game to prove it.
