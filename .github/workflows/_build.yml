@@ -62,8 +62,7 @@ jobs:
           if [ "${{ matrix.target }}" = "linux-arm64" ]; then sudo apt-get install -y g++-aarch64-linux-gnu; fi
 
       - name: Stamp per-package versions
-        shell: bash
-        run: perl .github/workflows/scripts/version.pl --stamp
+        uses: Hawkynt/RepositoryTemplate/stamp-version@v1
 
       - name: Build (MSVC)
         if: runner.os == 'Windows'
