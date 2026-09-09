@@ -21,6 +21,49 @@
 
 ---
 
+## 🧭 Vision
+
+A joke that turned out to compile. `BASIC.h` puts line-numbered BASIC — `GOTO`, `GOSUB`, `DATA`,
+`FOR…TO/STEP`, `PRINT` — inside modern C++ with a single `#include`, using the preprocessor and a bit
+of control-flow abuse to make `10 PRINT "HELLO"` a legal C++ statement.
+
+It is kept honest by the demos: an eleven-part text-mode production and a playable snake, both
+written in the dialect, both building with an ordinary C++17 compiler. If they stop working the
+header is broken, whatever the header claims.
+
+## ✨ Features
+
+- Line-numbered BASIC inside C++: `GOTO`, `GOSUB`/`RETURN`, `DATA`/`READ`, `FOR…TO/STEP`, `IF…THEN`, `PRINT`
+- One header, no runtime, no build step — `#include "BASIC.h"` and start numbering lines
+- Text-mode output on Win32 and on any POSIX terminal
+- An eleven-part demo and a snake game as the proof it actually runs
+
+## 📦 Installation
+
+Copy `BASIC.h` into your project. That is the whole installation — there is no library to link and
+nothing to configure.
+
+```cpp
+#include "BASIC.h"
+```
+
+## 🚀 Quick start
+
+```cpp
+#include "BASIC.h"
+
+BASIC_MAIN
+  10 PRINT "HELLO, WORLD"
+  20 FOR I = 1 TO 3
+  30   PRINT I
+  40 NEXT I
+  50 END
+BASIC_END
+```
+
+Build it with any C++17 compiler. The [demos](#-example-second-unreality) below are the same dialect,
+at length.
+
 ## 🎯 What is this?
 
 `BASIC.h` is a C++ header that lets you write code like it’s 1985 — **but it compiles today**.
@@ -43,7 +86,7 @@ No. I’m not sorry.
 
 ---
 
-## 🧪 Why?
+## ❓ Why?
 
 Because BASIC was:
 
@@ -365,7 +408,7 @@ Plus `INPUT_FILE` (comma-aware), `EOF_FILE(n)`, `FOR_APPEND`, `KILL`,
 
 ---
 
-## 🧪 Math & Conversion
+## 🧮 Math & conversion
 
 ```cpp
 CINT(x)   → (int)(x)  
@@ -447,7 +490,19 @@ Yes, it’s beautiful.
 
 ---
 
-## 🔧 Building
+## 🎤 Final word
+
+**BASIC.h** is a shrine to weirdness, a playground for nostalgia, and a tool for creating retro magic inside modern compilers.
+
+You're not just writing C++.
+
+You're writing BASIC.
+In C++.
+And getting away with it.
+
+😉
+
+## 🛠️ Building
 
 It's a single header — `#include "BASIC.h"` and go, on Windows, Linux and
 macOS. The ConsoleSnake demo builds with:
@@ -471,18 +526,6 @@ linux-x86/x64/arm64, macos-x64/arm64** — ConsoleSnake and SecondUnreality for
 each, plus the header itself.
 
 ---
-
-## 🧪 Final Word
-
-**BASIC.h** is a shrine to weirdness, a playground for nostalgia, and a tool for creating retro magic inside modern compilers.
-
-You're not just writing C++.
-
-You're writing BASIC.
-In C++.
-And getting away with it.
-
-😉
 
 ## ❤️ Support
 
